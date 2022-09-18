@@ -7,6 +7,7 @@ public class PathTracer : ScriptableRendererFeature
     private PathTracerPass _pathTracerPass;
     [Range(1,8)] public int downscaleFactor = 1;
     [Range(0.0f,1.0f)] public float blendAmount;
+    public bool multiSample;
     class PathTracerPass : ScriptableRenderPass
     {
         private RenderTargetIdentifier _colorBuffer;
@@ -14,9 +15,11 @@ public class PathTracer : ScriptableRendererFeature
         private readonly ComputeShader _computeShader;
         private readonly int _downscaleFactor;
         private readonly float _blendAmount;
-        public PathTracerPass(int downscaleFactor, float blendAmount)
+        private readonly bool _mulitSample;
+        public PathTracerPass(int downscaleFactor, float blendAmount, bool mulitSample)
         {
             _blendAmount = blendAmount;
+            _mulitSample = mulitSample;
             _downscaleFactor = downscaleFactor == 0 ? 1 : downscaleFactor;
             _computeShader = (ComputeShader)Resources.Load("Compute/PathTracer");
         }
@@ -55,6 +58,7 @@ public class PathTracer : ScriptableRendererFeature
             _computeShader.SetInt("Height", _downscaleTexture.height);
             _computeShader.SetInt("DownscaleFactor", _downscaleFactor);
             _computeShader.SetFloat("BlendAmount", _blendAmount);
+            _computeShader.SetBool("MultiSample", _mulitSample);
             _computeShader.Dispatch(0, _downscaleTexture.width, _downscaleTexture.height, 1);
             _computeShader.Dispatch(1, _sceneTexture.width, _sceneTexture.height, 1);
             
@@ -76,7 +80,7 @@ public class PathTracer : ScriptableRendererFeature
 
     public override void Create()
     {
-        _pathTracerPass = new PathTracerPass(downscaleFactor, blendAmount);
+        _pathTracerPass = new PathTracerPass(downscaleFactor, blendAmount, multiSample);
         _pathTracerPass.renderPassEvent = RenderPassEvent.AfterRenderingSkybox;
     }
 
