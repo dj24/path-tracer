@@ -37,6 +37,7 @@ public class PathTracer : ScriptableRendererFeature
             // Init input and output texture
             var descriptor = renderingData.cameraData.cameraTargetDescriptor;
             var _sceneTexture = RenderTexture.GetTemporary(descriptor);
+            var _upscaleTexture = RenderTexture.GetTemporary(descriptor);
             descriptor.enableRandomWrite = true;
             var _outputTexture = RenderTexture.GetTemporary(descriptor);
             descriptor.width /= _downscaleFactor;
@@ -48,27 +49,35 @@ public class PathTracer : ScriptableRendererFeature
             cmd.Blit(_colorBuffer,_sceneTexture);
             
             // Execute compute
-            _computeShader.SetTexture(0, "Result", _outputTexture);
-            _computeShader.SetTexture(0, "Downscale", _downscaleTexture);
-            _computeShader.SetTexture(0, "Scene", _sceneTexture);
-            _computeShader.SetTexture(1, "Result", _outputTexture);
-            _computeShader.SetTexture(1, "Downscale", _downscaleTexture);
-            _computeShader.SetTexture(1, "Scene", _sceneTexture);
             _computeShader.SetInt("Width", _downscaleTexture.width);
             _computeShader.SetInt("Height", _downscaleTexture.height);
             _computeShader.SetInt("DownscaleFactor", _downscaleFactor);
             _computeShader.SetFloat("BlendAmount", _blendAmount);
             _computeShader.SetBool("MultiSample", _mulitSample);
+            
+            _computeShader.SetTexture(0, "Result", _outputTexture);
+            _computeShader.SetTexture(0, "Downscale", _downscaleTexture);
+            _computeShader.SetTexture(0, "Scene", _sceneTexture);
             _computeShader.Dispatch(0, _downscaleTexture.width, _downscaleTexture.height, 1);
+            
+            var request = AsyncGPUReadback.Request(_outputTexture);
+            request.WaitForCompletion();
+            
+            cmd.Blit(_downscaleTexture,_upscaleTexture);
+
+            _computeShader.SetTexture(1, "Result", _outputTexture);
+            _computeShader.SetTexture(1, "Upscale", _upscaleTexture);
+            _computeShader.SetTexture(1, "Scene", _sceneTexture);
             _computeShader.Dispatch(1, _sceneTexture.width, _sceneTexture.height, 1);
             
             // Sync compute with frame
-            var request = AsyncGPUReadback.Request(_outputTexture);
+            request = AsyncGPUReadback.Request(_outputTexture);
             request.WaitForCompletion();
             
             // Clean up
             RenderTexture.ReleaseTemporary(_outputTexture);
             RenderTexture.ReleaseTemporary(_sceneTexture);
+            RenderTexture.ReleaseTemporary(_upscaleTexture);
             RenderTexture.ReleaseTemporary(_downscaleTexture);
             
             // Copy processed texture into scene buffer
