@@ -1,11 +1,45 @@
 #pragma kernel CSMain
+#pragma kernel Mix
+#include "Ray.hlsl"
 
 Texture2D<float4> Scene;
+RWTexture2D<float4> Downscale;
 RWTexture2D<float4> Result;
+int Width;
+int Height;
+int DownscaleFactor;
+float BlendAmount;
 
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    float4 colour = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
-    Result[id.xy] = lerp(Scene[id.xy], colour, 0.5);
+    // Image
+    const float aspect_ratio = float(Width) / float(Height);
+
+    // Camera
+    float viewport_height = 2.0;
+    float viewport_width = aspect_ratio * viewport_height;
+    float focal_length = 1.0;
+
+    float3 origin = 0;
+    float3 horizontal = float3(viewport_width, 0, 0);
+    float3 vertical = float3(0, viewport_height, 0);
+    float3 lower_left_corner = origin - horizontal/2 - vertical/2 - float3(0, 0, focal_length);
+
+    // Render
+    float u = float(id.x) / (Width-1);
+    float v = float(id.y) / (Height-1);
+    
+    Ray ray;
+    ray.origin = origin;
+    ray.direction = lower_left_corner + u*horizontal + v*vertical - origin;
+    
+    float3 pixel_color = ray_color(ray);
+    Downscale[id.xy] = float4(pixel_color, 1.0);
+}
+
+[numthreads(8,8,1)]
+void Mix (uint3 id : SV_DispatchThreadID)
+{
+    Result[id.xy] = lerp(Scene[id.xy], Downscale[id.xy / DownscaleFactor],BlendAmount);
 }

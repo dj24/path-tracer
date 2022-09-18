@@ -69,4 +69,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f3ec998324ecb4437b5c19c583175b36, type: 3}
   m_Name: PathTracerRenderFeature
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
+  downscaleFactor: 4
+  blendAmount: 1
