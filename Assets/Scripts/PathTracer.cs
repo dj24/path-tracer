@@ -26,27 +26,30 @@ public class PathTracer : ScriptableRendererFeature
         
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
+            // Init input and output texture
             var descriptor = renderingData.cameraData.cameraTargetDescriptor;
+            _sceneTexture = RenderTexture.GetTemporary(descriptor);
             descriptor.enableRandomWrite = true;
             _outputTexture = RenderTexture.GetTemporary(descriptor);
-            _sceneTexture = RenderTexture.GetTemporary(descriptor);
             
+            // Copy scene buffer into texture
             var cmd = CommandBufferPool.Get(m_ProfilerTag);
             cmd.Blit(_colorBuffer,_sceneTexture);
             
+            // Execute compute
             _computeShader.SetTexture(0, "Result", _outputTexture);
             _computeShader.SetTexture(0, "Scene", _sceneTexture);
             _computeShader.Dispatch(0, _outputTexture.width, _outputTexture.height, 1);
-            AsyncGPUReadback.Request(
-                _outputTexture,
-                0,
-                _ =>
-                {
-                    RenderTexture.ReleaseTemporary(_outputTexture);
-                    RenderTexture.ReleaseTemporary(_sceneTexture);
-                }
-            );
-
+            
+            // Sync compute with frame
+            var request = AsyncGPUReadback.Request(_outputTexture);
+            request.WaitForCompletion();
+            
+            // Clean up
+            RenderTexture.ReleaseTemporary(_outputTexture);
+            RenderTexture.ReleaseTemporary(_sceneTexture);
+            
+            // Copy processed texture into scene buffer
             cmd.Blit(_outputTexture,_colorBuffer);
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
