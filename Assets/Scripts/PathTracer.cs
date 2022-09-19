@@ -7,13 +7,14 @@ public enum SamplesPerPixel
     One = 1,
     Two = 2,
     Four = 4,
-    Eight = 8
+    Eight = 8,
+    Sixteen = 16
 }
 
 public class PathTracer : ScriptableRendererFeature
 {
     private PathTracerPass _pathTracerPass;
-    [Range(1,8)] public int downscaleFactor = 1;
+    [Range(1,16)] public int downscaleFactor = 1;
     [Range(0.0f,1.0f)] public float blendAmount;
     public SamplesPerPixel samplesPerPixel;
     class PathTracerPass : ScriptableRenderPass

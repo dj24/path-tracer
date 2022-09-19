@@ -14,14 +14,50 @@ float length_squared(float3 v) {
     return v[0]*v[0] + v[1]*v[1] + v[2]*v[2];  
 }
 
-float random_float(){
-    float2 co = _Time;
+float random(float2 co){
     return frac(sin(dot(co.xy ,float2(12.9898,78.233))) * 43758.5453);
 }
 
-float random_float(float min, float max) {
+float random(float2 co, float min, float max) {
     // Returns a random real in [min,max). 
-    return min + (max-min)*random_float();
+    return min + (max-min)*random(co);
+}
+
+float3 random_float3(float2 co){
+    return float3(random(co), random(co * 2), random(co * 3));
+}
+
+float3 random_float3(float2 co, float min, float max) {
+    return float3(random(co, min,max), random(co * 2,min,max), random(co * 3,min,max));
+}
+
+float3 random_in_unit_sphere(float2 co) {
+    float3 p = random_float3(co,-1,1);
+    while (length_squared(p) < 1) {
+        p = random_float3(co,-1,1);
+    }
+    return p;
+}
+
+float3 reflect(float3 v, float3 n) {
+    return v - 2*dot(v,n)*n;
+}
+
+float3 random_unit_vector(float2 co) {
+    return unit_vector(random_in_unit_sphere(co));
+}
+
+bool near_zero(float3 e) {
+    // Return true if the vector is close to zero in all dimensions.
+    const float s = 1e-8;
+    return (abs(e[0]) < s) && (abs(e[1]) < s) && (abs(e[2]) < s);
+}
+
+float3 random_in_hemisphere(float2 co, float3 normal) {
+    float3 in_unit_sphere = random_in_unit_sphere(co);
+    if (dot(in_unit_sphere, normal) > 0.0) // In the same hemisphere as the normal
+        return in_unit_sphere;
+    return -in_unit_sphere;
 }
 
 float3 write_color(float3 pixel_color, int samples_per_pixel) {

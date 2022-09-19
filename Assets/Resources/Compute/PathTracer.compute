@@ -40,48 +40,110 @@ struct Camera {
     }
 };
 
+float3 ray_color(float2 id, Ray ray, Sphere spheres[3])
+{
+    int depth = 8;
+    Ray current_ray = ray;
+    
+    float3 unit_direction = unit_vector(ray.direction);
+    float t = 0.5*(unit_direction.y + 1.0);
+    float3 current_color = (1.0-t)*float3(1.0, 1.0, 1.0) + t*float3(0.5, 0.7, 1.0);
+
+    HitRecord rec;
+    float t_min = 0.001;
+    float t_max = 99999999;
+    
+    // Depth is number bounces, one ray per bounce
+    while(depth > 0)
+    {
+        bool hit_anything = false; 
+        float closest_so_far = t_max;
+        Material material;
+
+        // Iterate over objects, finding closest hit
+        for (int i = 0; i < 3; i++) {
+            if (spheres[i].hit(current_ray, t_min, closest_so_far, rec)) {
+                hit_anything = true; 
+                closest_so_far = rec.t;
+                material = spheres[i].material;
+            }
+        }
+
+        if(hit_anything)
+        {
+            // float3 attenuation;
+            // if (material.scatter(current_ray, rec, attenuation))
+            // {
+                // current_color = attenuation * current_color;
+                // depth --;
+                // continue;
+            // }
+            float3 target = rec.p + random_in_hemisphere(id,rec.normal);
+            current_ray.origin = rec.p;
+            current_ray.direction = target - rec.p;
+            current_color = 0.5 * current_color;
+            depth --;
+            continue;
+        }
+        return current_color;
+    }
+    // If we've exceeded the ray bounce limit, no more light is gathered.
+    return 0;
+}
+
+
 [numthreads(8,8,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
     // Image
-    float2 sample_positions[8] = {
+    float2 sample_positions[16] = {
+        0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,
     };
     if( SamplesPerPixel == 2)
     {
-        sample_positions[0] =  float2(-0.5,0.5);
-        sample_positions[1] = float2(0.5,-0.5);
+        sample_positions[0] =  float2(-0.25,0.25);
+        sample_positions[1] = float2(0.25,-0.25);
     }
     if( SamplesPerPixel == 4) 
     {
-        sample_positions[0] =  float2(-0.4,-0.1);
-        sample_positions[1] = float2(-0.1,0.4);
-        sample_positions[2]= float2(0.4,0.1);
-        sample_positions[3]= float2(0.1,-0.4);
+        sample_positions[0] =  float2(-0.375,-0.125);
+        sample_positions[1] = float2(-0.125,0.375);
+        sample_positions[2]= float2(0.375,0.125);
+        sample_positions[3]= float2(0.125,-0.375);
     }
     if( SamplesPerPixel == 8) 
     {
-        sample_positions[0] =  float2(-0.875,0.125);
-        sample_positions[1] = float2(-0.375,0.625);
-        sample_positions[2]= float2(0.125,0.375);
-        sample_positions[3]= float2(0.875,0.875);
-        sample_positions[4]= float2(-0.625,-0.625);
-        sample_positions[5]= float2(-0.125,-0.375);
-        sample_positions[6]= float2(0.375,-0.875);
-        sample_positions[7]= float2(0.625,-0.125);
+        sample_positions[0] =  float2(0.0625,-0.1875);
+        sample_positions[1] =  float2(-0.0625,0.1875);
+        sample_positions[2] =  float2(0.3125,0.0625);
+        sample_positions[3] =  float2(-0.1875,-0.3125);
+        sample_positions[4] =  float2(-0.3125,0.3125);
+        sample_positions[5] =  float2(-0.4375,-0.0625);
+        sample_positions[6] =  float2(0.1875,0.4375);
+        sample_positions[7] =  float2(0.4375,0.4375);
     }
-    
-    // World
-    Sphere spheres[2] = {
-        {
-            0,0,-1,
-            0.5,
-        },
-        {
-        0,-100.5,-1,
-        100}
-    };
+    if( SamplesPerPixel == 16) 
+    {
+        sample_positions[0] =  float2(0.0625,0.0625);
+        sample_positions[1] =  float2(-0.0625,-0.1875);
+        sample_positions[2] =  float2(-0.1875,0.125);
+        sample_positions[3] =  float2(0.25,-0.0625);
+        sample_positions[4] =  float2(-0.3125,-0.125);
+        sample_positions[5] =  float2(0.125,0.3125);
+        sample_positions[6] =  float2(0.3125,0.1875);
+        sample_positions[7] =  float2(0.1875,-0.3125);
+        sample_positions[8] =  float2(-0.125,0.375);
+        sample_positions[9] =  float2(0,-0.4375);
+        sample_positions[10] =  float2(-0.25,-0.375);
+        sample_positions[11] =  float2(-0.375,0.25);
+        sample_positions[12] =  float2(-0.5,0);
+        sample_positions[13] =  float2(0.4375,-0.25);
+        sample_positions[14] =  float2(0.375,0.4375);
+        sample_positions[15] =  float2(-0.4375,-0.5);
+    }
     
     // Camera
     Camera cam;
@@ -89,40 +151,37 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 
     // Render
     float3 pixel_color = 0.0;
-    HitRecord rec;
+    Material metal = {
+        1,0,0
+    };
+    
+    Sphere s1;
+    s1.center = float3(-0.5,0,-1);
+    s1.radius = 0.5;
+    s1.material = metal;
+    
+    Sphere s2;
+    s2.center = float3(0.5, 0.1 + _SinTime.w * 0.2,-1);
+    s2.radius = 0.4;
+    s2.material = metal;
+    
+    Sphere s3;
+    s3.center = float3(0,-100.5,-1);
+    s3.radius = 100;
+    s3.material = metal;
+    
+    // World
+    Sphere spheres[3] = {
+        s1,
+        s2,
+        s3
+    };
 
     for (int s = 0; s < SamplesPerPixel; ++s) {
-        float3 ray_color;
         float u = float(id.x + sample_positions[s].x) / (Width-1);
         float v = float(id.y + sample_positions[s].y) / (Height-1);
         Ray ray = cam.get_ray(u, v);
-        // Check Objects
-        HitRecord temp_rec;
-        float t_min = 0;
-        float t_max = 999999;
-        bool hit_anything = false;
-        float closest_so_far = t_max;
-
-        for (int i = 0; i < 2; i++) {
-            if (spheres[i].hit(ray, t_min, closest_so_far, temp_rec)) {
-                hit_anything = true;
-                closest_so_far = temp_rec.t;
-                rec = temp_rec;
-            }
-        }
-
-        if(hit_anything)
-        {
-            float3 N = rec.normal;
-            ray_color = 0.5*float3(N.x+1, N.y+1, N.z+1);
-        }
-        else
-        {
-            float3 unit_direction = unit_vector(ray.direction);
-            float t = 0.5*(unit_direction.y + 1.0);
-            ray_color = (1.0-t)*float3(1.0, 1.0, 1.0) + t*float3(0.5, 0.7, 1.0);
-        }
-        pixel_color += ray_color;
+        pixel_color += ray_color(float2(u,v), ray, spheres);
     }
     pixel_color = write_color(pixel_color, SamplesPerPixel);
     
