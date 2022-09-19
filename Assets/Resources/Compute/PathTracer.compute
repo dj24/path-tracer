@@ -42,7 +42,7 @@ struct Camera {
 
 float3 ray_color(float2 id, Ray ray, Sphere spheres[3])
 {
-    int depth = 8;
+    int depth = 16;
     Ray current_ray = ray;
     
     float3 unit_direction = unit_vector(ray.direction);
@@ -71,17 +71,15 @@ float3 ray_color(float2 id, Ray ray, Sphere spheres[3])
 
         if(hit_anything)
         {
-            // float3 attenuation;
-            // if (material.scatter(current_ray, rec, attenuation))
-            // {
-                // current_color = attenuation * current_color;
-                // depth --;
-                // continue;
-            // }
-            float3 target = rec.p + random_in_hemisphere(id,rec.normal);
-            current_ray.origin = rec.p;
-            current_ray.direction = target - rec.p;
-            current_color = 0.5 * current_color;
+            // float3 target = rec.p + random_in_hemisphere(id,rec.normal);
+            // current_ray.origin = rec.p;
+            // current_ray.direction = target - rec.p;
+            // current_color = 0.5 * current_color;
+            Ray scattered;
+            float3 attenuation;
+            material.scatter(id,current_ray, rec, attenuation, scattered);
+            current_ray = scattered;
+            current_color = attenuation * current_color;
             depth --;
             continue;
         }
@@ -152,7 +150,9 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     // Render
     float3 pixel_color = 0.0;
     Material metal = {
-        1,0,0
+        0.7, 0.3, 0.3,
+        false,
+        0.2
     };
     
     Sphere s1;
@@ -161,11 +161,15 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     s1.material = metal;
     
     Sphere s2;
+    metal.albedo = float3(0.8, 0.8, 0.8);
+    metal.isMetal = true;
     s2.center = float3(0.5, 0.1 + _SinTime.w * 0.2,-1);
     s2.radius = 0.4;
     s2.material = metal;
     
     Sphere s3;
+    metal.albedo = float3(0.8, 0.8, 0.0);
+    metal.isMetal = false;
     s3.center = float3(0,-100.5,-1);
     s3.radius = 100;
     s3.material = metal;

@@ -25,26 +25,28 @@ struct HitRecord {
 
 struct Material {
     float3 albedo;
-
-    // bool scatter(Ray r_in, HitRecord rec,out  float3 attenuation, out Ray scattered) {
-    //     float scatter_direction = rec.normal + random_unit_vector(0); // TODO fix
-    //     scattered.direction = scatter_direction;
-    //     scattered.origin = rec.p;  
-    //     attenuation = albedo;
-    //     return true;
-    // }
+    bool isMetal;
+    float fuzz;
     
-    bool scatter(out Ray ray, HitRecord rec,out  float3 attenuation) {
-        float scatter_direction = rec.normal + random_unit_vector(0); // TODO fix
-
+    bool scatter(float2 co, Ray r_in, HitRecord rec,out float3 attenuation, out Ray scattered) {
+        if(isMetal)
+        {
+            float3 reflected = reflect(unit_vector(r_in.direction), rec.normal);
+            scattered.origin = rec.p;
+            scattered.direction = reflected + fuzz * random_in_unit_sphere(co);
+            attenuation = albedo;
+            return dot(scattered.direction, rec.normal) > 0;
+        }
+        
+        float3 scatter_direction = rec.normal + random_in_unit_sphere(co);
         // Catch degenerate scatter direction
         if (near_zero(scatter_direction))
         {
             scatter_direction = rec.normal;
         }
        
-        ray.direction = scatter_direction;
-        ray.origin = rec.p; 
+        scattered.direction = scatter_direction;
+        scattered.origin = rec.p; 
         attenuation = albedo;
         return true;
     }
