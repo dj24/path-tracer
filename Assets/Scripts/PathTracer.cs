@@ -2,12 +2,20 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
+public enum SamplesPerPixel
+{
+    One = 1,
+    Two = 2,
+    Four = 4,
+    Eight = 8
+}
+
 public class PathTracer : ScriptableRendererFeature
 {
     private PathTracerPass _pathTracerPass;
     [Range(1,8)] public int downscaleFactor = 1;
     [Range(0.0f,1.0f)] public float blendAmount;
-    public bool multiSample;
+    public SamplesPerPixel samplesPerPixel;
     class PathTracerPass : ScriptableRenderPass
     {
         private RenderTargetIdentifier _colorBuffer;
@@ -15,11 +23,11 @@ public class PathTracer : ScriptableRendererFeature
         private readonly ComputeShader _computeShader;
         private readonly int _downscaleFactor;
         private readonly float _blendAmount;
-        private readonly bool _mulitSample;
-        public PathTracerPass(int downscaleFactor, float blendAmount, bool mulitSample)
+        private readonly int _samplesPerPixel;
+        public PathTracerPass(int downscaleFactor, float blendAmount, int samplesPerPixel)
         {
             _blendAmount = blendAmount;
-            _mulitSample = mulitSample;
+            _samplesPerPixel = samplesPerPixel;
             _downscaleFactor = downscaleFactor == 0 ? 1 : downscaleFactor;
             _computeShader = (ComputeShader)Resources.Load("Compute/PathTracer");
         }
@@ -53,7 +61,7 @@ public class PathTracer : ScriptableRendererFeature
             _computeShader.SetInt("Height", _downscaleTexture.height);
             _computeShader.SetInt("DownscaleFactor", _downscaleFactor);
             _computeShader.SetFloat("BlendAmount", _blendAmount);
-            _computeShader.SetBool("MultiSample", _mulitSample);
+            _computeShader.SetInt("SamplesPerPixel", _samplesPerPixel);
             
             _computeShader.SetTexture(0, "Result", _outputTexture);
             _computeShader.SetTexture(0, "Downscale", _downscaleTexture);
@@ -89,7 +97,7 @@ public class PathTracer : ScriptableRendererFeature
 
     public override void Create()
     {
-        _pathTracerPass = new PathTracerPass(downscaleFactor, blendAmount, multiSample);
+        _pathTracerPass = new PathTracerPass(downscaleFactor, blendAmount, (int)samplesPerPixel);
         _pathTracerPass.renderPassEvent = RenderPassEvent.AfterRenderingSkybox;
     }
 
