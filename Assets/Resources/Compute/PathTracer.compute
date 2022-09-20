@@ -6,34 +6,41 @@ Texture2D<float4> Scene;
 RWTexture2D<float4> Downscale;
 Texture2D<float4> Upscale;
 RWTexture2D<float4> Result; 
-int Width;
+int Width; 
 int Height;
 int DownscaleFactor;
 int SamplesPerPixel;
-float BlendAmount; 
+float BlendAmount;
+float VerticalFov;
+float3 CameraPosition;
+float3 CameraDirection;
 
 struct Camera {
-    float3 origin;
     float3 lower_left_corner;
     float3 horizontal;
     float3 vertical;
     
     void setup() {
+        float3 vup = float3(0,1,0);
         const float aspect_ratio = float(Width) / float(Height);
-        float viewport_height = 2.0; 
+        float theta = degrees_to_radians(VerticalFov);
+        float h = tan(theta/2.0);
+        float viewport_height = 2.0 * h;
         float viewport_width = aspect_ratio * viewport_height;
-        float focal_length = 1.0;
-
-        origin = float3(0, 0, 0);
-        horizontal = float3(viewport_width, 0.0, 0.0);
-        vertical = float3(0.0, viewport_height, 0.0);
-        lower_left_corner = origin - horizontal/2 - vertical/2 - float3(0, 0, focal_length);
+        
+        float3 w = unit_vector(CameraDirection);
+        float3 u = unit_vector(cross(vup, w));
+        float3 v = cross(w, u);
+        
+        horizontal = -viewport_width * u;
+        vertical = viewport_height * v;
+        lower_left_corner = CameraPosition - horizontal/2 - vertical/2 - w;
     }
 
     Ray get_ray(float u, float v) {
-        float3 direction = lower_left_corner + u*horizontal + v*vertical - origin;
+        float3 direction = lower_left_corner + u*horizontal + v*vertical - CameraPosition;
         Ray ray = {
-            origin.x, origin.y, origin.z,
+            CameraPosition.x, CameraPosition.y, CameraPosition.z,
             direction.x, direction.y, direction.z
         };
         return ray;
@@ -42,12 +49,13 @@ struct Camera {
 
 float3 ray_color(float2 id, Ray ray, Sphere spheres[3])
 {
-    int depth = 16;
+    int depth = 8;
     Ray current_ray = ray;
     
     float3 unit_direction = unit_vector(ray.direction);
     float t = 0.5*(unit_direction.y + 1.0);
     float3 current_color = (1.0-t)*float3(1.0, 1.0, 1.0) + t*float3(0.5, 0.7, 1.0);
+    // float3 current_color = float3(1,0.5,0.5);
 
     HitRecord rec;
     float t_min = 0.001;
@@ -146,6 +154,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     // Camera
     Camera cam;
     cam.setup();
+    
 
     // Render
     float3 pixel_color = 0.0;

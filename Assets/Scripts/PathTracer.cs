@@ -1,3 +1,4 @@
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -24,6 +25,8 @@ public class PathTracer : ScriptableRendererFeature
         private readonly ComputeShader _computeShader;
         private readonly int _downscaleFactor;
         private readonly float _blendAmount;
+        private float _verticalFov;
+        private Vector3 _cameraPosition, _cameraDirection;
         private readonly int _samplesPerPixel;
         public PathTracerPass(int downscaleFactor, float blendAmount, int samplesPerPixel)
         {
@@ -35,6 +38,10 @@ public class PathTracer : ScriptableRendererFeature
         
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
+            _verticalFov = renderingData.cameraData.camera.fieldOfView;
+            _cameraPosition = renderingData.cameraData.camera.transform.position;
+            _cameraDirection = -renderingData.cameraData.camera.transform.forward;
+
             RenderTextureDescriptor descriptor = renderingData.cameraData.cameraTargetDescriptor;
             descriptor.depthBufferBits = 0;
             ConfigureInput(ScriptableRenderPassInput.Depth);
@@ -43,6 +50,7 @@ public class PathTracer : ScriptableRendererFeature
         
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
+            //_verticalFov = SceneView.currentDrawingSceneView.camera.fieldOfView;
             // Init input and output texture
             var descriptor = renderingData.cameraData.cameraTargetDescriptor;
             var _sceneTexture = RenderTexture.GetTemporary(descriptor);
@@ -61,8 +69,11 @@ public class PathTracer : ScriptableRendererFeature
             _computeShader.SetInt("Width", _downscaleTexture.width);
             _computeShader.SetInt("Height", _downscaleTexture.height);
             _computeShader.SetInt("DownscaleFactor", _downscaleFactor);
-            _computeShader.SetFloat("BlendAmount", _blendAmount);
             _computeShader.SetInt("SamplesPerPixel", _samplesPerPixel);
+            _computeShader.SetFloat("BlendAmount", _blendAmount);
+            _computeShader.SetFloat("VerticalFov", _verticalFov);
+            _computeShader.SetVector("CameraDirection", new Vector4(_cameraDirection.x, _cameraDirection.y, _cameraDirection.z, 0));
+            _computeShader.SetVector("CameraPosition", new Vector4(_cameraPosition.x, _cameraPosition.y, _cameraPosition.z, 0));
             
             _computeShader.SetTexture(0, "Result", _outputTexture);
             _computeShader.SetTexture(0, "Downscale", _downscaleTexture);

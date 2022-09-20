@@ -438,5 +438,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: lucy
       objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 463f5687c547f4234b28573df9fb9f6d,
+        type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 463f5687c547f4234b28573df9fb9f6d, type: 3}
