@@ -50,7 +50,19 @@ public class PathTracer : ScriptableRendererFeature
         
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
-            //_verticalFov = SceneView.currentDrawingSceneView.camera.fieldOfView;
+            if (renderingData.cameraData.cameraType == CameraType.Preview ||
+                renderingData.cameraData.cameraType == CameraType.Reflection)
+            {
+                return;
+            }
+            
+            var reflectionProbe = Camera.main.GetComponent<ReflectionProbe>();
+            if (reflectionProbe.texture == null)
+            {
+                return;
+            }
+            Debug.Log(reflectionProbe.texture.dimension);
+
             // Init input and output texture
             var descriptor = renderingData.cameraData.cameraTargetDescriptor;
             var _sceneTexture = RenderTexture.GetTemporary(descriptor);
@@ -75,9 +87,10 @@ public class PathTracer : ScriptableRendererFeature
             _computeShader.SetVector("CameraDirection", new Vector4(_cameraDirection.x, _cameraDirection.y, _cameraDirection.z, 0));
             _computeShader.SetVector("CameraPosition", new Vector4(_cameraPosition.x, _cameraPosition.y, _cameraPosition.z, 0));
             
-            _computeShader.SetTexture(0, "Result", _outputTexture);
+            
             _computeShader.SetTexture(0, "Downscale", _downscaleTexture);
-            _computeShader.SetTexture(0, "Scene", _sceneTexture);
+            _computeShader.SetTexture(0, "Skybox", reflectionProbe.texture);
+            
             _computeShader.Dispatch(0, _downscaleTexture.width, _downscaleTexture.height, 1);
             
             var request = AsyncGPUReadback.Request(_outputTexture);

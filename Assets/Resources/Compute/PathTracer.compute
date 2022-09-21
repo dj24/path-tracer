@@ -5,6 +5,8 @@
 Texture2D<float4> Scene;
 RWTexture2D<float4> Downscale;
 Texture2D<float4> Upscale;
+TextureCube<float4> Skybox;
+SamplerState samplerSkybox;
 RWTexture2D<float4> Result; 
 int Width; 
 int Height;
@@ -54,8 +56,8 @@ float3 ray_color(float2 id, Ray ray, Sphere spheres[3])
     
     float3 unit_direction = unit_vector(ray.direction);
     float t = 0.5*(unit_direction.y + 1.0);
-    float3 current_color = (1.0-t)*float3(1.0, 1.0, 1.0) + t*float3(0.5, 0.7, 1.0);
-    // float3 current_color = float3(1,0.5,0.5);
+    // float3 current_color = (1.0-t)*float3(1.0, 1.0, 1.0) + t*float3(0.5, 0.7, 1.0);
+    float3 current_color = 1.0; // Light colour
 
     HitRecord rec;
     float t_min = 0.001;
@@ -91,6 +93,9 @@ float3 ray_color(float2 id, Ray ray, Sphere spheres[3])
             depth --;
             continue;
         }
+        float3 sky_color = Skybox.SampleLevel( samplerSkybox, float4( unit_vector(current_ray.direction).xyz, 0 ), 0.0 ).xyz;
+        current_color = sky_color * current_color;
+        
         return current_color;
     }
     // If we've exceeded the ray bounce limit, no more light is gathered.
@@ -159,9 +164,9 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     // Render
     float3 pixel_color = 0.0;
     Material metal = {
-        0.7, 0.3, 0.3,
+        1.0, 0.3, 0.3,
         false,
-        0.2
+        0.1
     };
     
     Sphere s1;
