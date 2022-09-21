@@ -49,19 +49,17 @@ struct Camera {
     }
 };
 
-float3 ray_color(float2 id, Ray ray, Sphere spheres[3])
+float4 ray_color(float2 id, Ray ray, Sphere spheres[3])
 {
-    int depth = 8;
-    Ray current_ray = ray;
+    const int max_depth = 8;
+    const float t_min = 0.001;
+    const float t_max = 99999999;
     
-    float3 unit_direction = unit_vector(ray.direction);
-    float t = 0.5*(unit_direction.y + 1.0);
-    // float3 current_color = (1.0-t)*float3(1.0, 1.0, 1.0) + t*float3(0.5, 0.7, 1.0);
+    int depth = max_depth;
+    
     float3 current_color = 1.0; // Light colour
 
     HitRecord rec;
-    float t_min = 0.001;
-    float t_max = 99999999;
     
     // Depth is number bounces, one ray per bounce
     while(depth > 0)
@@ -72,7 +70,7 @@ float3 ray_color(float2 id, Ray ray, Sphere spheres[3])
 
         // Iterate over objects, finding closest hit
         for (int i = 0; i < 3; i++) {
-            if (spheres[i].hit(current_ray, t_min, closest_so_far, rec)) {
+            if (spheres[i].hit(ray, t_min, closest_so_far, rec)) {
                 hit_anything = true; 
                 closest_so_far = rec.t;
                 material = spheres[i].material;
@@ -81,31 +79,29 @@ float3 ray_color(float2 id, Ray ray, Sphere spheres[3])
 
         if(hit_anything)
         {
-            // float3 target = rec.p + random_in_hemisphere(id,rec.normal);
-            // current_ray.origin = rec.p;
-            // current_ray.direction = target - rec.p;
-            // current_color = 0.5 * current_color;
             Ray scattered;
             float3 attenuation;
-            material.scatter(id,current_ray, rec, attenuation, scattered);
-            current_ray = scattered;
+            material.scatter(id,ray, rec, attenuation, scattered);
+            ray = scattered;
             current_color = attenuation * current_color;
             depth --;
             continue;
         }
-        float3 sky_color = Skybox.SampleLevel( samplerSkybox, float4( unit_vector(current_ray.direction).xyz, 0 ), 0.0 ).xyz;
+        float3 sky_color = Skybox.SampleLevel( samplerSkybox, float4( unit_vector(ray.direction).xyz, 0 ), 0.0 ).xyz;
         current_color = sky_color * current_color;
-        
-        return current_color;
+        // If no bounces, return 0 alpha channel to show background
+        return float4(current_color, depth == max_depth ? 0.0 : 1.0);
     }
     // If we've exceeded the ray bounce limit, no more light is gathered.
     return 0;
 }
 
+groupshared float4 sample_colours[16];
 
-[numthreads(8,8,1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+[numthreads(1,1,16)]
+void CSMain (uint2 id : SV_DispatchThreadID, uint3 groupThread : SV_GroupThreadID)
 {
+    int sample = groupThread.z; 
     // Image
     float2 sample_positions[16] = {
         0,0,0,0,0,0,0,0,
@@ -162,11 +158,10 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     
 
     // Render
-    float3 pixel_color = 0.0;
     Material metal = {
         1.0, 0.3, 0.3,
         false,
-        0.1
+        0.3
     };
     
     Sphere s1;
@@ -175,6 +170,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     s1.material = metal;
     
     Sphere s2;
+    metal.fuzz = 0.02;
     metal.albedo = float3(0.8, 0.8, 0.8);
     metal.isMetal = true;
     s2.center = float3(0.5, 0.1 + _SinTime.w * 0.2,-1);
@@ -182,8 +178,9 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     s2.material = metal;
     
     Sphere s3;
-    metal.albedo = float3(0.8, 0.8, 0.0);
-    metal.isMetal = false;
+    metal.albedo = float3(0.5, 0.5, 0.2);
+    metal.isMetal = true;
+    metal.fuzz = 0.3;
     s3.center = float3(0,-100.5,-1);
     s3.radius = 100;
     s3.material = metal;
@@ -192,22 +189,25 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     Sphere spheres[3] = {
         s1,
         s2,
-        s3
+        s3 
     };
 
-    for (int s = 0; s < SamplesPerPixel; ++s) {
-        float u = float(id.x + sample_positions[s].x) / (Width-1);
-        float v = float(id.y + sample_positions[s].y) / (Height-1);
-        Ray ray = cam.get_ray(u, v);
-        pixel_color += ray_color(float2(u,v), ray, spheres);
+    float u = float(id.x + sample_positions[sample].x) / (Width-1);
+    float v = float(id.y + sample_positions[sample].y) / (Height-1);
+    Ray ray = cam.get_ray(u, v);
+    sample_colours[sample] = ray_color(float2(u,v), ray, spheres);
+
+    float4 pixel_color = 0.0;
+    for (int s = 0; s < SamplesPerPixel; ++s)
+    {
+        pixel_color += sample_colours[s];
     }
-    pixel_color = write_color(pixel_color, SamplesPerPixel);
     
-    Downscale[id.xy] = float4(pixel_color, 1.0);
+    Downscale[id.xy] = write_color(pixel_color, SamplesPerPixel);
 }
 
-[numthreads(8,8,1)]
+[numthreads(1,1,1)]
 void Mix (uint3 id : SV_DispatchThreadID)
 {
-    Result[id.xy] = lerp(Upscale[id.xy], Scene[id.xy], BlendAmount);
+    Result[id.xy] = lerp(Upscale[id.xy], Scene[id.xy], Scene[id.xy].w);
 }

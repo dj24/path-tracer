@@ -61,7 +61,6 @@ public class PathTracer : ScriptableRendererFeature
             {
                 return;
             }
-            Debug.Log(reflectionProbe.texture.dimension);
 
             // Init input and output texture
             var descriptor = renderingData.cameraData.cameraTargetDescriptor;
@@ -87,11 +86,12 @@ public class PathTracer : ScriptableRendererFeature
             _computeShader.SetVector("CameraDirection", new Vector4(_cameraDirection.x, _cameraDirection.y, _cameraDirection.z, 0));
             _computeShader.SetVector("CameraPosition", new Vector4(_cameraPosition.x, _cameraPosition.y, _cameraPosition.z, 0));
             
-            
             _computeShader.SetTexture(0, "Downscale", _downscaleTexture);
             _computeShader.SetTexture(0, "Skybox", reflectionProbe.texture);
-            
-            _computeShader.Dispatch(0, _downscaleTexture.width, _downscaleTexture.height, 1);
+            _computeShader.GetKernelThreadGroupSizes(0, out uint kernelX,out uint kernelY, out uint _);
+            int threadGroupsX = (int) (_downscaleTexture.width / kernelX);
+            int threadGroupsY = (int) (_downscaleTexture.height / kernelY);
+            _computeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
             
             var request = AsyncGPUReadback.Request(_outputTexture);
             request.WaitForCompletion();

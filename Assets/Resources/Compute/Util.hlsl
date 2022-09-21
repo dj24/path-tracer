@@ -14,7 +14,8 @@ float length_squared(float3 v) {
 }
 
 float random(float2 co){
-    return frac(sin(dot(co.xy ,float2(12.9898,78.233))) * 43758.5453);
+    float2 time_seed = float2(co.x + _SinTime.x, co.y + _SinTime.x);
+    return frac(sin(dot(time_seed ,float2(12.9898,78.233))) * 43758.5453);
 }
 
 float random(float2 co, float min, float max) {
@@ -59,15 +60,16 @@ float3 random_in_hemisphere(float2 co, float3 normal) {
     return -in_unit_sphere;
 }
 
-float3 write_color(float3 pixel_color, int samples_per_pixel) {
+float4 write_color(float4 pixel_color, int samples_per_pixel) {
     float r = pixel_color.x;
     float g = pixel_color.y;
     float b = pixel_color.z;
+    float a = pixel_color.w;
     // Divide the color by the number of samples.
     float scale = 1.0 / samples_per_pixel;
     r *= scale;
     g *= scale;
     b *= scale;
     
-    return float3(r,g,b);
+    return float4(r,g,b,a);
 }
