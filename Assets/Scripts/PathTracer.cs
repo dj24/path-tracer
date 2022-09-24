@@ -12,12 +12,23 @@ public enum SamplesPerPixel
     Sixteen = 16
 }
 
+public enum PathTracerKernel
+{
+    Mix,
+    OneSample, 
+    TwoSamples,
+    FourSamples,
+    EightSamples,
+    SixteenSamples,
+}
+
 public class PathTracer : ScriptableRendererFeature
 {
     private PathTracerPass _pathTracerPass;
     [Range(1,16)] public int downscaleFactor = 1;
     [Range(0.0f,1.0f)] public float blendAmount;
     public SamplesPerPixel samplesPerPixel;
+    public bool useAccumulation;
     class PathTracerPass : ScriptableRenderPass
     {
         private RenderTargetIdentifier _colorBuffer;
@@ -26,10 +37,33 @@ public class PathTracer : ScriptableRendererFeature
         private readonly int _downscaleFactor;
         private readonly float _blendAmount;
         private float _verticalFov;
-        private Vector3 _cameraPosition, _cameraDirection;
+        private Vector3 _cameraDirection;
         private readonly int _samplesPerPixel;
-        public PathTracerPass(int downscaleFactor, float blendAmount, int samplesPerPixel)
+        private readonly bool _useAccumulation;
+
+        private int _kernelIndex
         {
+            get
+            {
+                switch (_samplesPerPixel)
+                {
+                    case (int)SamplesPerPixel.Two:
+                        return (int) PathTracerKernel.TwoSamples;
+                    case (int)SamplesPerPixel.Four:
+                        return (int) PathTracerKernel.FourSamples;
+                    case (int)SamplesPerPixel.Eight:
+                        return (int) PathTracerKernel.EightSamples;
+                    case (int)SamplesPerPixel.Sixteen:
+                        return (int) PathTracerKernel.SixteenSamples;
+                    default:
+                        return (int) PathTracerKernel.OneSample;
+                }
+            }
+        }
+
+        public PathTracerPass(int downscaleFactor, float blendAmount, int samplesPerPixel, bool useAccumulation)
+        {
+            _useAccumulation = useAccumulation;
             _blendAmount = blendAmount;
             _samplesPerPixel = samplesPerPixel;
             _downscaleFactor = downscaleFactor == 0 ? 1 : downscaleFactor;
@@ -39,7 +73,6 @@ public class PathTracer : ScriptableRendererFeature
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
             _verticalFov = renderingData.cameraData.camera.fieldOfView;
-            _cameraPosition = renderingData.cameraData.camera.transform.position;
             _cameraDirection = -renderingData.cameraData.camera.transform.forward;
 
             RenderTextureDescriptor descriptor = renderingData.cameraData.cameraTargetDescriptor;
@@ -77,6 +110,7 @@ public class PathTracer : ScriptableRendererFeature
             cmd.Blit(_colorBuffer,_sceneTexture);
             
             // Execute compute
+            _computeShader.SetBool("UseAccumulation", _useAccumulation);
             _computeShader.SetInt("Width", _downscaleTexture.width);
             _computeShader.SetInt("Height", _downscaleTexture.height);
             _computeShader.SetInt("DownscaleFactor", _downscaleFactor);
@@ -84,24 +118,25 @@ public class PathTracer : ScriptableRendererFeature
             _computeShader.SetFloat("BlendAmount", _blendAmount);
             _computeShader.SetFloat("VerticalFov", _verticalFov);
             _computeShader.SetVector("CameraDirection", new Vector4(_cameraDirection.x, _cameraDirection.y, _cameraDirection.z, 0));
-            _computeShader.SetVector("CameraPosition", new Vector4(_cameraPosition.x, _cameraPosition.y, _cameraPosition.z, 0));
-            
-            _computeShader.SetTexture(0, "Downscale", _downscaleTexture);
-            _computeShader.SetTexture(0, "Skybox", reflectionProbe.texture);
-            _computeShader.GetKernelThreadGroupSizes(0, out uint kernelX,out uint kernelY, out uint _);
-            int threadGroupsX = (int) (_downscaleTexture.width / kernelX);
+
+            _computeShader.SetTexture(_kernelIndex, "Downscale", _downscaleTexture);
+            _computeShader.SetTexture(_kernelIndex, "Skybox", reflectionProbe.texture);
+            uint kernelX = 1;
+            uint kernelY = 1;
+            // _computeShader.GetKernelThreadGroupSizes(_kernelIndex, out kernelX,out kernelY, out _);
+            int threadGroupsX = (int) (_downscaleTexture.width / kernelX); 
             int threadGroupsY = (int) (_downscaleTexture.height / kernelY);
-            _computeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
+            _computeShader.Dispatch(_kernelIndex, threadGroupsX, threadGroupsY, 1);
             
             var request = AsyncGPUReadback.Request(_outputTexture);
             request.WaitForCompletion();
             
             cmd.Blit(_downscaleTexture,_upscaleTexture);
 
-            _computeShader.SetTexture(1, "Result", _outputTexture);
-            _computeShader.SetTexture(1, "Upscale", _upscaleTexture);
-            _computeShader.SetTexture(1, "Scene", _sceneTexture);
-            _computeShader.Dispatch(1, _sceneTexture.width, _sceneTexture.height, 1);
+            _computeShader.SetTexture((int)PathTracerKernel.Mix, "Result", _outputTexture);
+            _computeShader.SetTexture((int)PathTracerKernel.Mix, "Upscale", _upscaleTexture);
+            _computeShader.SetTexture((int)PathTracerKernel.Mix, "Scene", _sceneTexture);
+            _computeShader.Dispatch((int)PathTracerKernel.Mix, _sceneTexture.width, _sceneTexture.height, 1);
             
             // Sync compute with frame
             request = AsyncGPUReadback.Request(_outputTexture);
@@ -122,7 +157,7 @@ public class PathTracer : ScriptableRendererFeature
 
     public override void Create()
     {
-        _pathTracerPass = new PathTracerPass(downscaleFactor, blendAmount, (int)samplesPerPixel);
+        _pathTracerPass = new PathTracerPass(downscaleFactor, blendAmount, (int)samplesPerPixel, useAccumulation);
         _pathTracerPass.renderPassEvent = RenderPassEvent.AfterRenderingSkybox;
     }
 
