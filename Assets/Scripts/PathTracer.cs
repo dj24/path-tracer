@@ -1,7 +1,9 @@
+using Unity.VisualScripting;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.SceneManagement;
 
 public enum SamplesPerPixel
 {
@@ -94,6 +96,21 @@ public class PathTracer : ScriptableRendererFeature
             {
                 return;
             }
+            var meshFilters = FindObjectsOfType(typeof(MeshFilter)) as MeshFilter[];
+            if (meshFilters.Length == 0)
+            {
+                return;
+            }
+
+            var mesh = meshFilters[0].sharedMesh;
+            mesh.indexBufferTarget = GraphicsBuffer.Target.Raw;
+            mesh.vertexBufferTarget = GraphicsBuffer.Target.Raw;
+            var vertexBuffer = mesh.GetVertexBuffer(0);
+            var indexBuffer = mesh.GetIndexBuffer();
+            var triangleCount = (int)(meshFilters[0].sharedMesh.GetIndexCount(0) / 3);
+            
+            Debug.Log(indexBuffer.stride);
+            Debug.Log(indexBuffer.count);
 
             // Init input and output texture
             var descriptor = renderingData.cameraData.cameraTargetDescriptor;
@@ -110,8 +127,11 @@ public class PathTracer : ScriptableRendererFeature
             cmd.Blit(_colorBuffer,_sceneTexture);
             
             // Execute compute
+            _computeShader.SetBuffer(_kernelIndex,"VertexBuffer",vertexBuffer);
+            _computeShader.SetBuffer(_kernelIndex,"IndexBuffer",indexBuffer);
             _computeShader.SetBool("UseAccumulation", _useAccumulation);
             _computeShader.SetInt("Width", _downscaleTexture.width);
+            _computeShader.SetInt("TriangleCount", triangleCount);
             _computeShader.SetInt("Height", _downscaleTexture.height);
             _computeShader.SetInt("DownscaleFactor", _downscaleFactor);
             _computeShader.SetInt("SamplesPerPixel", _samplesPerPixel);
@@ -147,6 +167,8 @@ public class PathTracer : ScriptableRendererFeature
             RenderTexture.ReleaseTemporary(_sceneTexture);
             RenderTexture.ReleaseTemporary(_upscaleTexture);
             RenderTexture.ReleaseTemporary(_downscaleTexture);
+            vertexBuffer.Release();
+            indexBuffer.Release();
             
             // Copy processed texture into scene buffer
             cmd.Blit(_outputTexture,_colorBuffer);

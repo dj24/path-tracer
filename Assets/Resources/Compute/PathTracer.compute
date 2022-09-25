@@ -7,8 +7,18 @@
 
 #include "Ray.hlsl"
 
+struct Vertex
+{
+    float3 position;
+    float3 normal;
+    float4 tangent;
+    float2 texcoord;
+};
+
 Texture2D<float4> Scene;
 RWTexture2D<float4> Downscale;
+ByteAddressBuffer VertexBuffer;
+ByteAddressBuffer IndexBuffer;
 Texture2D<float4> Upscale;
 TextureCube<float4> Skybox;
 SamplerState samplerSkybox;
@@ -16,6 +26,7 @@ RWTexture2D<float4> Result;
 int Width; 
 int Height;
 int DownscaleFactor;
+int TriangleCount;
 int SamplesPerPixel;
 float BlendAmount;
 float VerticalFov;
@@ -54,104 +65,6 @@ struct Camera {
     }
 };
 
-float4 trace_diffuse(float2 id, Ray ray, Sphere spheres[4])
-{
-    const int max_depth = 16;
-    const float t_min = 0.001;
-    const float t_max = 99999999;
-    
-    int depth = max_depth;
-    
-    float3 current_color = 1.0; // Light colour
-
-    HitRecord rec;
-    
-    // Depth is number bounces, one ray per bounce
-    while(depth > 0)
-    {
-        bool hit_anything = false;
-        // bool should_sample_light = random(id) > 0.1;
-        bool should_sample_light = false;
-        float closest_so_far = t_max;
-        Material material;
-
-        // Iterate over objects, finding closest hit
-        for (int i = 0; i < 4; i++) {
-            if (spheres[i].hit(ray, t_min, closest_so_far, rec)) {
-                hit_anything = true; 
-                closest_so_far = rec.t;
-                material = spheres[i].material;
-            }
-        }
-
-        if(hit_anything)
-        {
-            Ray scattered;
-            if(should_sample_light)
-            {
-                material.direct_light(id, rec, scattered); // Towards Light
-                ray = scattered;
-                current_color = 0;
-            }
-            else
-            {
-                float3 attenuation;
-                material.scatter(id,ray, rec, attenuation, scattered);
-                ray = scattered;
-                current_color = attenuation * current_color;
-            }
-            depth --;
-            
-            continue;
-        }
-        float3 sky_color = Skybox.SampleLevel( samplerSkybox, float4( unit_vector(ray.direction).xyz, 0 ), 0.0 ).xyz;
-        current_color = sky_color * current_color;
-        break;
-    }
-    return float4(current_color, depth == max_depth ? 0.0 : 1.0);
-}
-
-float trace_direct(float2 id, Ray ray, Sphere spheres[4])
-{
-    const int max_depth = 4;
-    const float t_min = 0.001;
-    const float t_max = 99999999;
-    
-    int depth = max_depth;
-    
-    float current_color = 100.0 ; // Light colour
-
-    HitRecord rec;
-    
-    // Depth is number bounces, one ray per bounce
-    while(depth > 0)
-    {
-        bool hit_anything = false; 
-        float closest_so_far = t_max;
-        Material material;
-        
-        for (int i = 0; i < 4; i++) {
-            if (spheres[i].hit(ray, t_min, closest_so_far, rec)) {
-                hit_anything = true; 
-                closest_so_far = rec.t;
-                material = spheres[i].material;
-            }
-        }
-        
-        if(hit_anything)
-        {
-            Ray scattered;
-            material.direct_light(id, rec, scattered); // Towards Light
-            ray = scattered;
-            current_color = 0.5 * current_color;
-            depth --;
-            continue;
-        }
-        break;
-    }
-    return current_color;
-}
-
 groupshared float4 sample_colours[16];
 
 void PathTrace(uint2 id, uint sample)
@@ -161,7 +74,7 @@ void PathTrace(uint2 id, uint sample)
         0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0, 
     };
     if( SamplesPerPixel == 2)
     {
@@ -213,43 +126,41 @@ void PathTrace(uint2 id, uint sample)
 
     // Render
     Material metal = {
-        0.9, 0.1, 0.3,
-        false,
-        0.3
+        1, 0, 0,
+        true,
+        0.0
     };
     
-    Sphere s1;
-    s1.center = float3(-0.5,0,-1);
-    s1.radius = 0.5;
+    Triangle s1;
+    s1.v2 = 0.0;
+    s1.v1 = float3(1,1,0);
+    s1.v0 = float3(0,1,0);
     s1.material = metal;
     
-    Sphere s2;
-    metal.fuzz = 0.02;
-    metal.albedo = float3(0.8, 0.8, 0.8);
-    metal.isMetal = true;
-    s2.center = float3(0.5, 0.1 + _SinTime.w * 0.2,-1);
-    s2.radius = 0.4;
+    Triangle s2;
+    s2.v2 = 0.0;
+    s2.v1 = float3(1,0,0);
+    s2.v0 = float3(1,1,0);
+    metal.albedo = float3(0,1,0);
     s2.material = metal;
     
-    Sphere s3;
-    metal.albedo = float3(0.5, 0.5, 0.2); 
-    metal.isMetal = true;
-    metal.fuzz = 0.1;
-    s3.center = float3(0,-100.5,-1);
-    s3.radius = 100;
+    Triangle s3;
+    s3.v2 = float3(0,0,0);
+    s3.v1 = float3(0,0,1);
+    s3.v0 = float3(1,0,1);
+    metal.albedo = float3(0,0,1);
     s3.material = metal;
 
 
-    Sphere s4;
-    metal.fuzz = 0.15;
-    metal.albedo = float3(0.2, 0.8, 0.4);
-    metal.isMetal = true;
-    s4.center = float3( 0, 0.3,1.5 + _SinTime.z);
-    s4.radius = 0.7;
+    Triangle s4;
+    s4.v2 = float3(0,0,0);
+    s4.v1 = float3(1,0,1);
+    s4.v0 = float3(1,0,0);
+    metal.albedo = float3(1,0,1);
     s4.material = metal;
     
     // World
-    Sphere spheres[4] = {
+    Triangle triangles[4] = {
         s1,
         s2,
         s3,
@@ -259,10 +170,70 @@ void PathTrace(uint2 id, uint sample)
     float u = float(id.x + sample_positions[sample].x) / (Width-1);
     float v = float(id.y + sample_positions[sample].y) / (Height-1);
     Ray ray = cam.get_ray(u, v);
-    float direct = trace_direct(float2(u,v), ray, spheres);
-    sample_colours[sample] = trace_diffuse(float2(u,v), ray, spheres);
 
-    // GroupMemoryBarrierWithGroupSync();
+    // Trace Sample
+    const int max_depth = 2;
+    const float t_min = 0.001;
+    const float t_max = 99999999;
+    
+    int depth = max_depth;
+    float3 current_color = 1.0; // Light colour
+
+    HitRecord rec;
+    
+    // Depth is number bounces, one ray per bounce
+    while(depth > 0)
+    {
+        bool hit_anything = false;
+        // bool should_sample_light = random(id) > 0.1;
+        bool should_sample_light = false;
+        float closest_so_far = t_max;
+        Material material;
+
+        // Iterate over objects, finding closest hit
+        for (int i = 0; i < TriangleCount; i++) {
+            Triangle tri;
+            uint indexStride = 4;
+            uint vertexStride = 48;
+            uint id0 = UnpackUint2x16(IndexBuffer.Load(i * indexStride)).x;
+            uint id1 = UnpackUint2x16(IndexBuffer.Load(i * indexStride)).y;
+            uint id2 = UnpackUint2x16(IndexBuffer.Load((i * indexStride) + 4)).x;
+            tri.v0 = load_float3(VertexBuffer, id0 * vertexStride);
+            tri.v1 = load_float3(VertexBuffer, id1 * vertexStride);
+            tri.v2 =  load_float3(VertexBuffer, id2 * vertexStride);
+            if (tri.hit(ray, t_min, closest_so_far, rec)) {
+                hit_anything = true; 
+                closest_so_far = rec.t;
+                material = metal;
+            }
+        }
+        if(hit_anything)
+        {
+            Ray scattered;
+            if(should_sample_light)
+            {
+                material.direct_light(id, rec, scattered); // Towards Light
+                ray = scattered;
+                current_color = 0;
+            }
+            else
+            {
+                float3 attenuation;
+                material.scatter(id,ray, rec, attenuation, scattered);
+                ray = scattered;
+                current_color = attenuation * current_color;
+            }
+            depth --;
+            
+            continue;
+        }
+        float3 sky_color = Skybox.SampleLevel( samplerSkybox, float4( unit_vector(ray.direction).xyz, 0 ), 0.0 ).xyz;
+        current_color = sky_color * current_color;
+        break;
+    }
+    sample_colours[sample] = float4(current_color, depth == max_depth ? 0.0 : 1.0);
+
+    // Only run once per pixel
     if(sample > 0)
     {
         return;

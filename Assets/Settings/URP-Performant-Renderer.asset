@@ -72,5 +72,5 @@ MonoBehaviour:
   m_Active: 1
   downscaleFactor: 1
   blendAmount: 1
-  samplesPerPixel: 16
+  samplesPerPixel: 1
   useAccumulation: 0

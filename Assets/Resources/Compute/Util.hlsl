@@ -73,3 +73,28 @@ float4 write_color(float4 pixel_color, int samples_per_pixel) {
     
     return float4(r,g,b,a);
 }
+
+uint pack_2_bytes(uint2 vals) {
+    return vals.x + (vals.y << 8);
+}
+
+uint pack_4_bytes(uint4 vals) {
+    return vals.x + (vals.y << 8) + (vals.z << 16) + (vals.w << 24);
+}
+
+uint load_uint16(ByteAddressBuffer buffer, uint offset)
+{
+    return buffer.Load(offset);
+}
+
+float3 load_float3(ByteAddressBuffer buffer, uint offset)
+{
+    return asfloat(buffer.Load3(offset));
+}
+
+uint2 UnpackUint2x16(uint packed_values) {
+    uint y = (packed_values >> 16) & 0xffffu;
+    uint x = packed_values & 0xffffu;
+
+    return uint2(x, y);
+}
