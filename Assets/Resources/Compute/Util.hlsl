@@ -84,12 +84,11 @@ uint pack_4_bytes(uint4 vals) {
 
 uint load_uint16(ByteAddressBuffer buffer, uint offset)
 {
-    return buffer.Load(offset);
+    return asuint(buffer.Load(offset));
 }
 
-float3 load_float3(ByteAddressBuffer buffer, uint offset)
-{
-    return asfloat(buffer.Load3(offset));
+uint PackUint2x16(uint2 vals) {
+    return vals.x + (vals.y << 16);
 }
 
 uint2 UnpackUint2x16(uint packed_values) {

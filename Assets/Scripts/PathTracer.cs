@@ -1,3 +1,4 @@
+using System;
 using Unity.VisualScripting;
 using UnityEditor;
 using UnityEngine;
@@ -28,6 +29,7 @@ public class PathTracer : ScriptableRendererFeature
 {
     private PathTracerPass _pathTracerPass;
     [Range(1,16)] public int downscaleFactor = 1;
+    [Range(2,96)] public int vertexStride = 48;
     [Range(0.0f,1.0f)] public float blendAmount;
     public SamplesPerPixel samplesPerPixel;
     public bool useAccumulation;
@@ -42,6 +44,7 @@ public class PathTracer : ScriptableRendererFeature
         private Vector3 _cameraDirection;
         private readonly int _samplesPerPixel;
         private readonly bool _useAccumulation;
+        private readonly int _vertexStride;
 
         private int _kernelIndex
         {
@@ -63,8 +66,9 @@ public class PathTracer : ScriptableRendererFeature
             }
         }
 
-        public PathTracerPass(int downscaleFactor, float blendAmount, int samplesPerPixel, bool useAccumulation)
+        public PathTracerPass(int downscaleFactor, float blendAmount, int samplesPerPixel, bool useAccumulation, int vertexStride)
         {
+            _vertexStride = vertexStride;
             _useAccumulation = useAccumulation;
             _blendAmount = blendAmount;
             _samplesPerPixel = samplesPerPixel;
@@ -103,14 +107,12 @@ public class PathTracer : ScriptableRendererFeature
             }
 
             var mesh = meshFilters[0].sharedMesh;
+            
             mesh.indexBufferTarget = GraphicsBuffer.Target.Raw;
             mesh.vertexBufferTarget = GraphicsBuffer.Target.Raw;
             var vertexBuffer = mesh.GetVertexBuffer(0);
             var indexBuffer = mesh.GetIndexBuffer();
             var triangleCount = (int)(meshFilters[0].sharedMesh.GetIndexCount(0) / 3);
-            
-            Debug.Log(indexBuffer.stride);
-            Debug.Log(indexBuffer.count);
 
             // Init input and output texture
             var descriptor = renderingData.cameraData.cameraTargetDescriptor;
@@ -126,15 +128,22 @@ public class PathTracer : ScriptableRendererFeature
             var cmd = CommandBufferPool.Get(ProfilerTag);
             cmd.Blit(_colorBuffer,_sceneTexture);
             
+            // DEBUG
+            var testBuffer = new ComputeBuffer(4,4);
+            
             // Execute compute
             _computeShader.SetBuffer(_kernelIndex,"VertexBuffer",vertexBuffer);
             _computeShader.SetBuffer(_kernelIndex,"IndexBuffer",indexBuffer);
+            _computeShader.SetBuffer(_kernelIndex, "TestBuffer", testBuffer);
             _computeShader.SetBool("UseAccumulation", _useAccumulation);
             _computeShader.SetInt("Width", _downscaleTexture.width);
+            _computeShader.SetVector("MeshOrigin", meshFilters[0].transform.position);
+            _computeShader.SetMatrix("TransformMatrix", meshFilters[0].GetComponent<Renderer>().localToWorldMatrix);
             _computeShader.SetInt("TriangleCount", triangleCount);
             _computeShader.SetInt("Height", _downscaleTexture.height);
             _computeShader.SetInt("DownscaleFactor", _downscaleFactor);
             _computeShader.SetInt("SamplesPerPixel", _samplesPerPixel);
+            _computeShader.SetInt("VertexStride", _vertexStride);
             _computeShader.SetFloat("BlendAmount", _blendAmount);
             _computeShader.SetFloat("VerticalFov", _verticalFov);
             _computeShader.SetVector("CameraDirection", new Vector4(_cameraDirection.x, _cameraDirection.y, _cameraDirection.z, 0));
@@ -161,6 +170,15 @@ public class PathTracer : ScriptableRendererFeature
             // Sync compute with frame
             request = AsyncGPUReadback.Request(_outputTexture);
             request.WaitForCompletion();
+
+            // Debug
+            var arr = new uint[4];
+            testBuffer.GetData(arr);
+            foreach (var i in arr)
+            {
+                // Debug.Log(i);
+            }
+            
             
             // Clean up
             RenderTexture.ReleaseTemporary(_outputTexture);
@@ -169,6 +187,7 @@ public class PathTracer : ScriptableRendererFeature
             RenderTexture.ReleaseTemporary(_downscaleTexture);
             vertexBuffer.Release();
             indexBuffer.Release();
+            testBuffer.Release();
             
             // Copy processed texture into scene buffer
             cmd.Blit(_outputTexture,_colorBuffer);
@@ -179,7 +198,7 @@ public class PathTracer : ScriptableRendererFeature
 
     public override void Create()
     {
-        _pathTracerPass = new PathTracerPass(downscaleFactor, blendAmount, (int)samplesPerPixel, useAccumulation);
+        _pathTracerPass = new PathTracerPass(downscaleFactor, blendAmount, (int)samplesPerPixel, useAccumulation, vertexStride);
         _pathTracerPass.renderPassEvent = RenderPassEvent.AfterRenderingSkybox;
     }
 

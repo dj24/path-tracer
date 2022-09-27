@@ -7,31 +7,28 @@
 
 #include "Ray.hlsl"
 
-struct Vertex
-{
-    float3 position;
-    float3 normal;
-    float4 tangent;
-    float2 texcoord;
-};
-
 Texture2D<float4> Scene;
 RWTexture2D<float4> Downscale;
+RWByteAddressBuffer TestBuffer;
 ByteAddressBuffer VertexBuffer;
 ByteAddressBuffer IndexBuffer;
 Texture2D<float4> Upscale;
 TextureCube<float4> Skybox;
 SamplerState samplerSkybox;
-RWTexture2D<float4> Result; 
+RWTexture2D<float4> Result;
+float4x4 TransformMatrix;
+
 int Width; 
 int Height;
 int DownscaleFactor;
 int TriangleCount;
 int SamplesPerPixel;
+int VertexStride;
 float BlendAmount;
 float VerticalFov;
 bool UseAccumulation;
 float3 CameraDirection;
+float3 MeshOrigin;
 
 struct Camera {
     float3 lower_left_corner;
@@ -126,45 +123,9 @@ void PathTrace(uint2 id, uint sample)
 
     // Render
     Material metal = {
-        1, 0, 0,
+        0.5, 0.5, 0.5,
         true,
         0.0
-    };
-    
-    Triangle s1;
-    s1.v2 = 0.0;
-    s1.v1 = float3(1,1,0);
-    s1.v0 = float3(0,1,0);
-    s1.material = metal;
-    
-    Triangle s2;
-    s2.v2 = 0.0;
-    s2.v1 = float3(1,0,0);
-    s2.v0 = float3(1,1,0);
-    metal.albedo = float3(0,1,0);
-    s2.material = metal;
-    
-    Triangle s3;
-    s3.v2 = float3(0,0,0);
-    s3.v1 = float3(0,0,1);
-    s3.v0 = float3(1,0,1);
-    metal.albedo = float3(0,0,1);
-    s3.material = metal;
-
-
-    Triangle s4;
-    s4.v2 = float3(0,0,0);
-    s4.v1 = float3(1,0,1);
-    s4.v0 = float3(1,0,0);
-    metal.albedo = float3(1,0,1);
-    s4.material = metal;
-    
-    // World
-    Triangle triangles[4] = {
-        s1,
-        s2,
-        s3,
-        s4
     };
     
     float u = float(id.x + sample_positions[sample].x) / (Width-1);
@@ -180,6 +141,22 @@ void PathTrace(uint2 id, uint sample)
     float3 current_color = 1.0; // Light colour
 
     HitRecord rec;
+
+    for(int i = 0 ; i < 4; i++)
+    {
+        uint p1 = PackUint2x16(uint2(0,1));
+        uint p2 = PackUint2x16(uint2(2,3));
+        
+        min16uint id1 = f32tof16(UnpackUint2x16(p1).x);
+        min16uint id2 = f32tof16(UnpackUint2x16(p1).y);
+        min16uint id3 = f32tof16(UnpackUint2x16(p2).x);
+        min16uint id4 = f32tof16(UnpackUint2x16(p2).y);
+        
+        TestBuffer.Store(0,id1);
+        TestBuffer.Store(4,id2);
+        TestBuffer.Store(8,id3);
+        TestBuffer.Store(12,id4);
+    }
     
     // Depth is number bounces, one ray per bounce
     while(depth > 0)
@@ -190,20 +167,48 @@ void PathTrace(uint2 id, uint sample)
         float closest_so_far = t_max;
         Material material;
 
+        uint indexStride = 4;
         // Iterate over objects, finding closest hit
         for (int i = 0; i < TriangleCount; i++) {
             Triangle tri;
-            uint indexStride = 4;
-            uint vertexStride = 48;
-            uint id0 = UnpackUint2x16(IndexBuffer.Load(i * indexStride)).x;
-            uint id1 = UnpackUint2x16(IndexBuffer.Load(i * indexStride)).y;
-            uint id2 = UnpackUint2x16(IndexBuffer.Load((i * indexStride) + 4)).x;
-            tri.v0 = load_float3(VertexBuffer, id0 * vertexStride);
-            tri.v1 = load_float3(VertexBuffer, id1 * vertexStride);
-            tri.v2 =  load_float3(VertexBuffer, id2 * vertexStride);
+            uint id0, id1, id2;
+            if(i % 2 == 0)
+            {
+                id0 = UnpackUint2x16(IndexBuffer.Load(i * 6)).x; // 0
+                id1 = UnpackUint2x16(IndexBuffer.Load(i * 6)).y; // 2
+                id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 4)).x; // 4
+            }
+            else
+            {
+                id0 = UnpackUint2x16(IndexBuffer.Load(i * 6 - 2)).y; // 4
+                id1 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 2)).x;
+                id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 2)).y;
+            }
+            
+            tri.v0 = asfloat(VertexBuffer.Load3(id0 * VertexStride)) + MeshOrigin;
+            tri.v1 = asfloat(VertexBuffer.Load3(id1 * VertexStride)) + MeshOrigin;
+            tri.v2 = asfloat(VertexBuffer.Load3(id2 * VertexStride)) + MeshOrigin;
             if (tri.hit(ray, t_min, closest_so_far, rec)) {
                 hit_anything = true; 
                 closest_so_far = rec.t;
+                if(i == 0)
+                {
+                    metal.albedo = float3(1,0,0);
+                }
+                if(i == 1)
+                {
+                    metal.albedo = float3(0,1,0);
+                }
+                if(i == 2)
+                {
+                    metal.albedo = float3(0,0,1);
+                }
+                if(i == 3)
+                {
+                    metal.albedo = float3(1,0,1);
+                }
+                
+                
                 material = metal;
             }
         }
