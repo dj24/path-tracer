@@ -9,12 +9,12 @@
 
 Texture2D<float4> Scene;
 RWTexture2D<float4> Downscale;
-RWByteAddressBuffer TestBuffer;
 ByteAddressBuffer VertexBuffer;
 ByteAddressBuffer IndexBuffer;
 Texture2D<float4> Upscale;
+Texture2D<float> Depth;
 TextureCube<float4> Skybox;
-SamplerState samplerSkybox;
+SamplerState samplerSkybox; 
 RWTexture2D<float4> Result;
 float4x4 TransformMatrix;
 
@@ -24,7 +24,6 @@ int DownscaleFactor;
 int TriangleCount;
 int SamplesPerPixel;
 int VertexStride;
-float BlendAmount;
 float VerticalFov;
 bool UseAccumulation;
 float3 CameraDirection;
@@ -66,6 +65,12 @@ groupshared float4 sample_colours[16];
 
 void PathTrace(uint2 id, uint sample)
 {
+    if(Depth[id.xy * DownscaleFactor] == 0)
+    {
+        // If not rendering, dont sample
+        Downscale[id.xy] = 0;
+        return;
+    }
     // Image
     float2 sample_positions[16] = {
         0,0,0,0,0,0,0,0,
@@ -141,22 +146,6 @@ void PathTrace(uint2 id, uint sample)
     float3 current_color = 1.0; // Light colour
 
     HitRecord rec;
-
-    for(int i = 0 ; i < 4; i++)
-    {
-        uint p1 = PackUint2x16(uint2(0,1));
-        uint p2 = PackUint2x16(uint2(2,3));
-        
-        min16uint id1 = f32tof16(UnpackUint2x16(p1).x);
-        min16uint id2 = f32tof16(UnpackUint2x16(p1).y);
-        min16uint id3 = f32tof16(UnpackUint2x16(p2).x);
-        min16uint id4 = f32tof16(UnpackUint2x16(p2).y);
-        
-        TestBuffer.Store(0,id1);
-        TestBuffer.Store(4,id2);
-        TestBuffer.Store(8,id3);
-        TestBuffer.Store(12,id4);
-    }
     
     // Depth is number bounces, one ray per bounce
     while(depth > 0)
@@ -166,49 +155,36 @@ void PathTrace(uint2 id, uint sample)
         bool should_sample_light = false;
         float closest_so_far = t_max;
         Material material;
-
-        uint indexStride = 4;
+        
         // Iterate over objects, finding closest hit
         for (int i = 0; i < TriangleCount; i++) {
             Triangle tri;
             uint id0, id1, id2;
+            // Unpack 2 byte indicies
+            // TODO: pass in mesh index format
             if(i % 2 == 0)
             {
-                id0 = UnpackUint2x16(IndexBuffer.Load(i * 6)).x; // 0
-                id1 = UnpackUint2x16(IndexBuffer.Load(i * 6)).y; // 2
-                id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 4)).x; // 4
+                id0 = UnpackUint2x16(IndexBuffer.Load(i * 6)).x; 
+                id1 = UnpackUint2x16(IndexBuffer.Load(i * 6)).y;
+                id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 4)).x;
             }
             else
             {
-                id0 = UnpackUint2x16(IndexBuffer.Load(i * 6 - 2)).y; // 4
+                id0 = UnpackUint2x16(IndexBuffer.Load(i * 6 - 2)).y;
                 id1 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 2)).x;
                 id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 2)).y;
             }
             
-            tri.v0 = asfloat(VertexBuffer.Load3(id0 * VertexStride)) + MeshOrigin;
-            tri.v1 = asfloat(VertexBuffer.Load3(id1 * VertexStride)) + MeshOrigin;
-            tri.v2 = asfloat(VertexBuffer.Load3(id2 * VertexStride)) + MeshOrigin;
+            // tri.v0 = asfloat(VertexBuffer.Load3(id0 * VertexStride)) + MeshOrigin;
+            // tri.v1 = asfloat(VertexBuffer.Load3(id1 * VertexStride)) + MeshOrigin;
+            // tri.v2 = asfloat(VertexBuffer.Load3(id2 * VertexStride)) + MeshOrigin;
+            tri.v0 = mul(asfloat(VertexBuffer.Load3(id0 * VertexStride)), TransformMatrix);
+            tri.v1 = mul(asfloat(VertexBuffer.Load3(id1 * VertexStride)), TransformMatrix);
+            tri.v2 = mul(asfloat(VertexBuffer.Load3(id2 * VertexStride)), TransformMatrix);
+            
             if (tri.hit(ray, t_min, closest_so_far, rec)) {
                 hit_anything = true; 
                 closest_so_far = rec.t;
-                if(i == 0)
-                {
-                    metal.albedo = float3(1,0,0);
-                }
-                if(i == 1)
-                {
-                    metal.albedo = float3(0,1,0);
-                }
-                if(i == 2)
-                {
-                    metal.albedo = float3(0,0,1);
-                }
-                if(i == 3)
-                {
-                    metal.albedo = float3(1,0,1);
-                }
-                
-                
                 material = metal;
             }
         }
@@ -291,8 +267,9 @@ void Trace16 (uint2 id : SV_GroupID, uint sample : SV_GroupThreadID)
     PathTrace(id, sample);
 }
 
+// TODO: Fix texture name mismatch
 [numthreads(1,1,1)]
-void Mix (uint3 id : SV_DispatchThreadID)
+void Mix (uint3 id : SV_DispatchThreadID) 
 {
     Result[id.xy] = lerp(Upscale[id.xy], Scene[id.xy], Scene[id.xy].w);
 }
