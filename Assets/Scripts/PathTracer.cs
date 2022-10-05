@@ -134,7 +134,9 @@ public class PathTracer : ScriptableRendererFeature
             _computeShader.SetBool("UseAccumulation", _useAccumulation);
             _computeShader.SetInt("Width", _downscaleTexture.width);
             _computeShader.SetVector("MeshOrigin", meshFilters[0].transform.position);
-            _computeShader.SetMatrix("TransformMatrix", meshFilters[0].GetComponent<Renderer>().worldToLocalMatrix);
+            _computeShader.SetMatrix("WorldToLocal", meshFilters[0].GetComponent<Renderer>().worldToLocalMatrix);
+            _computeShader.SetMatrix("LocalToWorld", meshFilters[0].GetComponent<Renderer>().localToWorldMatrix);
+            // Debug.Log(meshFilters[0].GetComponent<Renderer>().localToWorldMatrix);
             _computeShader.SetInt("TriangleCount", triangleCount);
             _computeShader.SetInt("VertexStride", vertexBuffer.stride);
             _computeShader.SetInt("Height", _downscaleTexture.height);

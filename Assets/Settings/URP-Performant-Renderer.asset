@@ -70,7 +70,7 @@ MonoBehaviour:
   m_Name: PathTracerRenderFeature
   m_EditorClassIdentifier: 
   m_Active: 1
-  downscaleFactor: 5
+  downscaleFactor: 10
   blendAmount: 1
-  samplesPerPixel: 8
+  samplesPerPixel: 1
   useAccumulation: 0

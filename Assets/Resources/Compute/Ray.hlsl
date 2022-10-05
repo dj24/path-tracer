@@ -28,46 +28,42 @@ struct Material {
     bool isMetal;
     float fuzz;
 
-    bool direct_light(float2 co, HitRecord rec,out Ray scattered) {
+    Ray direct_light(float2 co, HitRecord rec) {
+        Ray scattered;
+        scattered.origin = rec.p; 
         if(isMetal)
         {
             scattered.origin = rec.p;
             scattered.direction = _WorldSpaceLightPos0.xyz + fuzz * random_in_unit_sphere(co);
-            return dot(scattered.direction, rec.normal) > 0;
-        }
-        
-        float3 scatter_direction = _WorldSpaceLightPos0.xyz + random_in_unit_sphere(co);
-        if (near_zero(scatter_direction))
+        } else
         {
-            scatter_direction = rec.normal;
+            scattered.direction = _WorldSpaceLightPos0.xyz + random_in_unit_sphere(co);
+            if (near_zero(scattered.direction))
+            {
+                scattered.direction = rec.normal;
+            }
         }
-       
-        scattered.direction = scatter_direction;
-        scattered.origin = rec.p; 
-        return true;
+        return scattered;
     }
     
-    bool scatter(float2 co, Ray r_in, HitRecord rec,out float3 attenuation, out Ray scattered) {
+    Ray scatter(float2 co, Ray r_in, HitRecord rec,out float3 attenuation) {
+        Ray scattered;
+        scattered.origin = rec.p;
+        attenuation = albedo;
         if(isMetal)
         {
             float3 reflected = reflect(unit_vector(r_in.direction), rec.normal);
-            scattered.origin = rec.p;
             scattered.direction = reflected + fuzz * random_in_unit_sphere(co);
-            attenuation = albedo;
-            return dot(scattered.direction, rec.normal) > 0;
         }
-        
-        float3 scatter_direction = rec.normal + random_in_unit_sphere(co);
-        // Catch degenerate scatter direction
-        if (near_zero(scatter_direction))
+        else
         {
-            scatter_direction = rec.normal;
+            scattered.direction = rec.normal + random_in_unit_sphere(co);
+            if (near_zero(scattered.direction))
+            {
+                scattered.direction = rec.normal;
+            }
         }
-       
-        scattered.direction = scatter_direction;
-        scattered.origin = rec.p; 
-        attenuation = albedo;
-        return true;
+        return scattered;
     }
 };
 
@@ -111,6 +107,17 @@ struct Triangle {
     float3 v2;
     Material material;
 
+    float3 normal()
+    {
+        float3 n;
+        float3 e1 = v1 - v0; 
+        float3 e2 = v2 - v0;
+        n.x = (e1.y * e2.z) - (e1.z * e2.y);
+        n.y = (e1.z * e2.x) - (e1.x * e2.z);
+        n.z = (e1.x * e2.y) - (e1.y * e2.x);
+        return normalize(n);
+    }
+    
     bool hit(Ray r, float t_min, float t_max, out HitRecord rec)
     {
         float3 e1 = v1 - v0; 
@@ -131,15 +138,10 @@ struct Triangle {
         if (v < 0 || u + v > 1) return false; 
  
         float t = dot(e2,qvec) * invDet; 
-        
-        float3 n;
-        n.x = (e1.y * e2.z) - (e1.z * e2.y);
-        n.y = (e1.z * e2.x) - (e1.x * e2.z);
-        n.z = (e1.x * e2.y) - (e1.y * e2.x);
 
         rec.t = t;
-        rec.p = r.at(rec.t);
-        rec.set_face_normal(r, n);
+        rec.p = r.at(t);
+        rec.set_face_normal(r, normal());
 
         return true;
     }
