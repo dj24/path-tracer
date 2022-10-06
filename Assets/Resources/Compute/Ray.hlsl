@@ -18,7 +18,7 @@ struct HitRecord {
     bool front_face;
 
     void set_face_normal(Ray r, float3 outward_normal) {
-        front_face = dot(r.direction, outward_normal) < 0;
+        front_face = dot(r.direction, outward_normal) > 0;
         normal = front_face ? outward_normal : -outward_normal;
     }
 };
@@ -105,7 +105,6 @@ struct Triangle {
     float3 v0;
     float3 v1;
     float3 v2;
-    Material material;
 
     float3 normal()
     {
@@ -118,14 +117,14 @@ struct Triangle {
         return normalize(n);
     }
     
-    bool hit(Ray r, float t_min, float t_max, out HitRecord rec)
+    bool hit(Ray r, out HitRecord rec, out float2 uv)
     {
         float3 e1 = v1 - v0; 
         float3 e2 = v2 - v0; 
         float3 pvec = cross(r.direction,e2); 
         float det = dot(e1,pvec);
         
-        if (det < t_min) return false; 
+        if (det < 0.0001) return false; 
 
         float invDet = 1.0 / det; 
  
@@ -143,7 +142,9 @@ struct Triangle {
         rec.p = r.at(t);
         rec.set_face_normal(r, normal());
 
-        return true;
+        uv = float2(u,v);
+        
+        return t > 0;
     }
 };
 

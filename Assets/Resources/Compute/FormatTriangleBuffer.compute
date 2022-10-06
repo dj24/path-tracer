@@ -1,0 +1,41 @@
+#pragma kernel Main
+
+#include "Ray.hlsl"
+
+RWStructuredBuffer<Triangle> SceneTriangles;
+ByteAddressBuffer VertexBuffer;
+ByteAddressBuffer IndexBuffer;
+int Stride;
+int Offset;
+int VertexStride;
+float4x4 LocalToWorld;
+
+const int triangle_stride = 36;
+
+[numthreads(1,1,1)]
+void Main(uint i : SV_DispatchThreadID)
+{
+    Triangle tri;
+    uint id0, id1, id2;
+    
+    // Unpack 2 byte indicies 
+    // TODO: pass in mesh index format
+    if(i % 2 == 0)
+    {
+        id0 = UnpackUint2x16(IndexBuffer.Load(i * 6)).x; 
+        id1 = UnpackUint2x16(IndexBuffer.Load(i * 6)).y;
+        id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 4)).x;
+    }
+    else
+    {
+        id0 = UnpackUint2x16(IndexBuffer.Load(i * 6 - 2)).y;
+        id1 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 2)).x;
+        id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 2)).y;
+    }
+    
+    tri.v0 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id0 * VertexStride)),1.0));
+    tri.v1 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id1 * VertexStride)),1.0));
+    tri.v2 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id2 * VertexStride)),1.0));
+
+    SceneTriangles[(Offset + i)] = tri;
+}

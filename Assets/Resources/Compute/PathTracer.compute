@@ -9,23 +9,21 @@
 
 Texture2D<float4> Scene;
 RWTexture2D<float4> Downscale;
-ByteAddressBuffer VertexBuffer;
-ByteAddressBuffer IndexBuffer;
+RWStructuredBuffer<Triangle> SceneTriangles;
 Texture2D<float4> Upscale;
 Texture2D<float> Depth;
 TextureCube<float4> Skybox;
 SamplerState samplerSkybox; 
 RWTexture2D<float4> Result;
-float4x4 WorldToLocal;
-float4x4 LocalToWorld;
 
 int Width; 
 int Height;
 int DownscaleFactor;
 int TriangleCount;
+int MaxBounces;
 int SamplesPerPixel;
-int VertexStride;
 float VerticalFov;
+float MaterialFuzz;
 bool UseAccumulation;
 float3 CameraDirection;
 float3 MeshOrigin;
@@ -61,16 +59,6 @@ struct Camera {
         return ray;
     }
 };
-
-float3 multVecMatrix(float3 src, float4x4 m)
-{
-    // float3 dst;
-    float3 translation = float3(m[0][3], m[1][3], m[2][3]);
-    float3 scale = float3(abs(m[0][0]), abs(m[1][1]), abs(m[2][2]));
-    // float rotatedX = 
-    // return src + translation;
-    return src * scale + translation;
-} 
 
 groupshared float4 sample_colours[16];
 
@@ -139,21 +127,19 @@ void PathTrace(uint2 id, uint sample)
 
     // Render
     Material metal = {
-        0.5, 0.5, 0.5,
+        0.66, 0.2, 0.3,
         true,
-        0.0
+        MaterialFuzz
     };
     
-    float u = float(id.x + sample_positions[sample].x) / (Width-1);
-    float v = float(id.y + sample_positions[sample].y) / (Height-1);
+    float2 subPixel = float2(id.x + sample_positions[sample].x,id.y + sample_positions[sample].y);
+    float u = float(subPixel.x / (Width-1));
+    float v = float(subPixel.y / (Height-1));
     Ray ray = cam.get_ray(u, v);
 
     // Trace Sample
-    const int max_depth = 2;
-    const float t_min = 0.001;
-    const float t_max = 99999999;
     
-    int depth = max_depth;
+    int depth = MaxBounces;
     float3 current_color = 1.0; // Light colour
 
     HitRecord rec;
@@ -164,49 +150,30 @@ void PathTrace(uint2 id, uint sample)
         bool hit_anything = false;
         // bool should_sample_light = random(id) > 0.1;
         bool should_sample_light = false;
-        float closest_so_far = t_max;
         Material material;
         
         // Iterate over objects, finding closest hit
         for (int i = 0; i < TriangleCount; i++) {
-            Triangle tri;
-            uint id0, id1, id2;
-            // Unpack 2 byte indicies
-            // TODO: pass in mesh index format
-            if(i % 2 == 0)
-            {
-                id0 = UnpackUint2x16(IndexBuffer.Load(i * 6)).x; 
-                id1 = UnpackUint2x16(IndexBuffer.Load(i * 6)).y;
-                id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 4)).x;
-            }
-            else
-            {
-                id0 = UnpackUint2x16(IndexBuffer.Load(i * 6 - 2)).y;
-                id1 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 2)).x;
-                id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 2)).y;
-            }
-
-            tri.v0 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id0 * VertexStride)),1.0));
-            tri.v1 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id1 * VertexStride)),1.0));
-            tri.v2 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id2 * VertexStride)),1.0)); 
-            
-            if (tri.hit(ray, t_min, closest_so_far, rec)) {
-                hit_anything = true; 
-                closest_so_far = rec.t;
-                material = metal;
+            Triangle tri = SceneTriangles[i];
+            float2 uv;
+            if (tri.hit(ray,rec,uv)) {
+                hit_anything = true;
+                Material new_material = metal;
+                new_material.albedo = float3(uv.x,uv.y,1-uv.x-uv.y);
+                material = new_material;
             }
         }
         if(hit_anything)
         {
             if(should_sample_light)
             {
-                ray =  material.direct_light(id, rec); // Towards Light
+                ray =  material.direct_light(subPixel, rec); // Towards Light
                 current_color = 0;
             }
             else
             {
                 float3 attenuation;
-                ray = material.scatter(id, ray, rec, attenuation);
+                ray = material.scatter(subPixel, ray, rec, attenuation);
                 current_color = attenuation * current_color;
             }
             depth --;
@@ -216,8 +183,10 @@ void PathTrace(uint2 id, uint sample)
         current_color = sky_color * current_color;
         break;
     }
-    sample_colours[sample] = float4(current_color, depth == max_depth ? 0.0 : 1.0);
+    sample_colours[sample] = float4(current_color, depth == MaxBounces ? 0.0 : 1.0);
 
+    GroupMemoryBarrierWithGroupSync();
+    
     // Only run once per pixel
     if(sample > 0)
     {
@@ -228,16 +197,10 @@ void PathTrace(uint2 id, uint sample)
     {
         pixel_color += sample_colours[s];
     }
-    if(UseAccumulation)
-    {
-        float mixAmount = 0.5;
-        Downscale[id.xy] = lerp(Downscale[id.xy],write_color(pixel_color, SamplesPerPixel), mixAmount);
-    }
-    else
-    {
-        Downscale[id.xy] = write_color(pixel_color, SamplesPerPixel);
-    }
-    
+    Downscale[id.xy] =
+        UseAccumulation
+            ? lerp(Downscale[id.xy],write_color(pixel_color, SamplesPerPixel), 0.5)
+            : write_color(pixel_color, SamplesPerPixel);
 }
  
 [numthreads(1,1,1)]
