@@ -1,0 +1,42 @@
+#pragma kernel Mix
+#pragma kernel HorizontalBlur
+#pragma kernel VerticalBlur
+#include <UnityShaderVariables.cginc>
+
+// Texture2D<float> Depth;
+Texture2D<float4> Scene;
+RWTexture2D<float4> Upscale;
+RWTexture2D<float4> Result;
+float Samples;
+
+float4 linear_blur (float2 id, float2 dir) 
+{
+    float4 total = 0;
+    float dist = 1.0 / Samples;
+    for(float i = -0.5; i<=0.5; i+=dist)
+    {
+        float2 coord = id+i*dir;
+        total += Upscale[coord];
+    }
+    return total * dist;
+}
+
+
+[numthreads(1,1,1)]
+void HorizontalBlur (uint2 id : SV_DispatchThreadID)
+{
+    Upscale[id] = linear_blur(id, float2(24, 0));
+}
+
+[numthreads(1,1,1)]
+void VerticalBlur (uint2 id : SV_DispatchThreadID)
+{
+    Upscale[id] = linear_blur(id, float2(0, 24));
+}
+
+// TODO: Fix texture name mismatch
+[numthreads(1,1,1)]
+void Mix (uint2 id : SV_DispatchThreadID) 
+{
+    Result[id] = lerp(Scene[id], Upscale[id], Upscale[id].w);
+}

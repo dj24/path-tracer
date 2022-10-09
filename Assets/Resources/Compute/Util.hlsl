@@ -1,5 +1,5 @@
 #include <UnityShaderVariables.cginc>
-const float infinity = 99999999;
+const float infinity = 99999999.0;
 
 float degrees_to_radians(float degrees) {
     return degrees * (3.1415926535897932385 / 180.0);

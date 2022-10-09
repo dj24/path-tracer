@@ -1,16 +1,11 @@
-#pragma kernel Mix
-#pragma kernel Trace1
-#pragma kernel Trace2
-#pragma kernel Trace4
-#pragma kernel Trace8
-#pragma kernel Trace16
+#pragma kernel Trace
+
+// TODO: add samples over time - 16 sub pixels over 16 frames
 
 #include "Ray.hlsl"
 
-Texture2D<float4> Scene;
 RWTexture2D<float4> Downscale;
 RWStructuredBuffer<Triangle> SceneTriangles;
-Texture2D<float4> Upscale;
 Texture2D<float> Depth;
 TextureCube<float4> Skybox;
 SamplerState samplerSkybox; 
@@ -21,129 +16,46 @@ int Height;
 int DownscaleFactor;
 int TriangleCount;
 int MaxBounces;
-int SamplesPerPixel;
 float VerticalFov;
 float MaterialFuzz;
 bool UseAccumulation;
+bool IsMetal;
 float3 CameraDirection;
 float3 MeshOrigin;
-
-struct Camera {
-    float3 lower_left_corner;
-    float3 horizontal;
-    float3 vertical;
-    
-    void setup() {
-        float3 vup = float3(0,1,0);
-        const float aspect_ratio = float(Width) / float(Height);
-        float theta = degrees_to_radians(VerticalFov);
-        float h = tan(theta/2.0);
-        float viewport_height = 2.0 * h;
-        float viewport_width = aspect_ratio * viewport_height;
-        
-        float3 w = unit_vector(CameraDirection);
-        float3 u = unit_vector(cross(vup, w));
-        float3 v = cross(w, u);
-        
-        horizontal = -viewport_width * u;
-        vertical = viewport_height * v;
-        lower_left_corner = _WorldSpaceCameraPos - horizontal/2 - vertical/2 - w;
-    }
-
-    Ray get_ray(float u, float v) {
-        float3 direction = lower_left_corner + u*horizontal + v*vertical - _WorldSpaceCameraPos;
-        Ray ray = {
-            _WorldSpaceCameraPos.x, _WorldSpaceCameraPos.y, _WorldSpaceCameraPos.z,
-            direction.x, direction.y, direction.z
-        };
-        return ray;
-    }
-};
-
-groupshared float4 sample_colours[16];
-
-void PathTrace(uint2 id, uint sample)
+float3 Color;
+  
+[numthreads(8,8,1)]
+void Trace(uint2 id : SV_DispatchThreadID)
 {
-    if(Depth[id.xy * DownscaleFactor] == 0)
+    if(Depth[id * DownscaleFactor] == 0)
     {
         // If not rendering, dont sample
-        Downscale[id.xy] = 0;
+        Downscale[id] = 0;
         return;
     }
-    // Image
-    float2 sample_positions[16] = {
-        0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0, 
-    };
-    if( SamplesPerPixel == 2)
-    {
-        sample_positions[0] =  float2(-0.25,0.25);
-        sample_positions[1] = float2(0.25,-0.25);
-    }
-    if( SamplesPerPixel == 4) 
-    {
-        sample_positions[0] =  float2(-0.375,-0.125);
-        sample_positions[1] = float2(-0.125,0.375);
-        sample_positions[2]= float2(0.375,0.125);
-        sample_positions[3]= float2(0.125,-0.375);
-    }
-    if( SamplesPerPixel == 8) 
-    {
-        sample_positions[0] =  float2(0.0625,-0.1875);
-        sample_positions[1] =  float2(-0.0625,0.1875);
-        sample_positions[2] =  float2(0.3125,0.0625);
-        sample_positions[3] =  float2(-0.1875,-0.3125);
-        sample_positions[4] =  float2(-0.3125,0.3125);
-        sample_positions[5] =  float2(-0.4375,-0.0625);
-        sample_positions[6] =  float2(0.1875,0.4375);
-        sample_positions[7] =  float2(0.4375,0.4375);
-    }
-    if( SamplesPerPixel == 16) 
-    {
-        sample_positions[0] =  float2(0.0625,0.0625);
-        sample_positions[1] =  float2(-0.0625,-0.1875);
-        sample_positions[2] =  float2(-0.1875,0.125);
-        sample_positions[3] =  float2(0.25,-0.0625);
-        sample_positions[4] =  float2(-0.3125,-0.125);
-        sample_positions[5] =  float2(0.125,0.3125);
-        sample_positions[6] =  float2(0.3125,0.1875);
-        sample_positions[7] =  float2(0.1875,-0.3125);
-        sample_positions[8] =  float2(-0.125,0.375);
-        sample_positions[9] =  float2(0,-0.4375);
-        sample_positions[10] =  float2(-0.25,-0.375);
-        sample_positions[11] =  float2(-0.375,0.25);
-        sample_positions[12] =  float2(-0.5,0);
-        sample_positions[13] =  float2(0.4375,-0.25);
-        sample_positions[14] =  float2(0.375,0.4375);
-        sample_positions[15] =  float2(-0.4375,-0.5);
-    }
-    
+   
     // Camera
     Camera cam;
-    cam.setup();
+    cam.setup(Width, Height, VerticalFov, CameraDirection);
     
-
     // Render
     Material metal = {
-        0.66, 0.2, 0.3,
+        Color.r, Color.g, Color.b,
         true,
         MaterialFuzz
     };
     
-    float2 subPixel = float2(id.x + sample_positions[sample].x,id.y + sample_positions[sample].y);
-    float u = float(subPixel.x / (Width-1));
-    float v = float(subPixel.y / (Height-1));
+    float u = float(float(id.x) / (Width-1));
+    float v = float(float(id.y) / (Height-1));
     Ray ray = cam.get_ray(u, v);
 
     // Trace Sample
-    
     int depth = MaxBounces;
     float3 current_color = 1.0; // Light colour
 
     HitRecord rec;
-    
+
+    float lowest_t = 999999999999.0; 
     // Depth is number bounces, one ray per bounce
     while(depth > 0)
     {
@@ -152,14 +64,17 @@ void PathTrace(uint2 id, uint sample)
         bool should_sample_light = false;
         Material material;
         
+        
         // Iterate over objects, finding closest hit
         for (int i = 0; i < TriangleCount; i++) {
             Triangle tri = SceneTriangles[i];
-            float2 uv;
-            if (tri.hit(ray,rec,uv)) {
-                hit_anything = true;
+            float3 uvw;
+            if (tri.hit(ray,rec,uvw) && rec.t < lowest_t) {
+                hit_anything = true; 
                 Material new_material = metal;
-                new_material.albedo = float3(uv.x,uv.y,1-uv.x-uv.y);
+                new_material.isMetal = IsMetal;
+                new_material.albedo = uvw;
+                lowest_t = rec.t;
                 material = new_material;
             }
         }
@@ -167,13 +82,13 @@ void PathTrace(uint2 id, uint sample)
         {
             if(should_sample_light)
             {
-                ray =  material.direct_light(subPixel, rec); // Towards Light
+                ray =  material.direct_light(id, rec); // Towards Light
                 current_color = 0;
             }
             else
             {
                 float3 attenuation;
-                ray = material.scatter(subPixel, ray, rec, attenuation);
+                ray = material.scatter(id, ray, rec, attenuation);
                 current_color = attenuation * current_color;
             }
             depth --;
@@ -183,59 +98,9 @@ void PathTrace(uint2 id, uint sample)
         current_color = sky_color * current_color;
         break;
     }
-    sample_colours[sample] = float4(current_color, depth == MaxBounces ? 0.0 : 1.0);
-
-    GroupMemoryBarrierWithGroupSync();
-    
-    // Only run once per pixel
-    if(sample > 0)
-    {
-        return;
-    }
-    float4 pixel_color = 0.0;
-    for (int s = 0; s < SamplesPerPixel; ++s)
-    {
-        pixel_color += sample_colours[s];
-    }
-    Downscale[id.xy] =
+    float4 pixel_color = float4(current_color, depth == MaxBounces ? 0.0 : 1.0);
+    Downscale[id] =
         UseAccumulation
-            ? lerp(Downscale[id.xy],write_color(pixel_color, SamplesPerPixel), 0.5)
-            : write_color(pixel_color, SamplesPerPixel);
-}
- 
-[numthreads(1,1,1)]
-void Trace1 (uint2 id : SV_GroupID)
-{
-    PathTrace(id, 0); 
-}
-
-[numthreads(2,1,1)]
-void Trace2 (uint2 id : SV_GroupID, uint sample : SV_GroupThreadID)
-{
-    PathTrace(id, sample);
-}
-
-[numthreads(4,1,1)]
-void Trace4 (uint2 id : SV_GroupID, uint sample : SV_GroupThreadID)
-{
-    PathTrace(id, sample);
-}
-
-[numthreads(8,1,1)]
-void Trace8 (uint2 id : SV_GroupID, uint sample : SV_GroupThreadID)
-{
-    PathTrace(id, sample);
-}
-
-[numthreads(16,1,1)]
-void Trace16 (uint2 id : SV_GroupID, uint sample : SV_GroupThreadID)
-{
-    PathTrace(id, sample);
-}
-
-// TODO: Fix texture name mismatch
-[numthreads(1,1,1)]
-void Mix (uint3 id : SV_DispatchThreadID) 
-{
-    Result[id.xy] = lerp(Upscale[id.xy], Scene[id.xy], Scene[id.xy].w);
+            ? lerp(Downscale[id.xy],write_color(pixel_color, 1), 0.125)
+            : write_color(pixel_color, 1);
 }

@@ -8,11 +8,12 @@ ByteAddressBuffer IndexBuffer;
 int Stride;
 int Offset;
 int VertexStride;
+int PositionOffset;
+int NormalOffset;
+float3 CameraDirection;
 float4x4 LocalToWorld;
 
-const int triangle_stride = 36;
-
-[numthreads(1,1,1)]
+[numthreads(64,1,1)]
 void Main(uint i : SV_DispatchThreadID)
 {
     Triangle tri;
@@ -33,9 +34,12 @@ void Main(uint i : SV_DispatchThreadID)
         id2 = UnpackUint2x16(IndexBuffer.Load(i * 6 + 2)).y;
     }
     
-    tri.v0 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id0 * VertexStride)),1.0));
-    tri.v1 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id1 * VertexStride)),1.0));
-    tri.v2 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id2 * VertexStride)),1.0));
+    tri.v0 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id0 * VertexStride + PositionOffset)),1.0));
+    tri.v1 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id1 * VertexStride + PositionOffset)),1.0));
+    tri.v2 = mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id2 * VertexStride + PositionOffset)),1.0));
+    tri.n0 = normalize(mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id0 * VertexStride + NormalOffset)),0.0)));
+    tri.n1 = normalize(mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id1 * VertexStride + NormalOffset)),0.0)));
+    tri.n2 = normalize(mul(LocalToWorld,float4(asfloat(VertexBuffer.Load3(id2 * VertexStride + NormalOffset)),0.0)));
 
     SceneTriangles[(Offset + i)] = tri;
 }

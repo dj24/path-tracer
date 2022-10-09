@@ -15,12 +15,6 @@ struct HitRecord {
     float3 p;
     float3 normal;
     float t;
-    bool front_face;
-
-    void set_face_normal(Ray r, float3 outward_normal) {
-        front_face = dot(r.direction, outward_normal) > 0;
-        normal = front_face ? outward_normal : -outward_normal;
-    }
 };
 
 struct Material {
@@ -67,46 +61,11 @@ struct Material {
     }
 };
 
-struct Sphere {
-    float3 center;
-    float radius;
-    Material material;
-
-    bool hit(Ray r, float t_min, float t_max, out HitRecord rec) {
-        float3 oc = r.origin - center;
-        float a = length_squared(r.direction);
-        float half_b = dot(oc, r.direction);
-        float c = length_squared(oc) - radius*radius;
-        float discriminant = half_b*half_b - a*c;
-
-        if (discriminant < 0) {
-            return false;
-        }
-        float sqrtd = sqrt(discriminant);
-
-        float root = (-half_b - sqrtd) / a;
-        if (root < t_min || t_max < root) {
-            root = (-half_b + sqrtd) / a;
-            if (root < t_min || t_max < root)
-                return false;
-        }
-
-        rec.t = root;
-        rec.p = r.at(rec.t);
-        rec.normal = (rec.p - center) / radius;
-        float3 outward_normal = (rec.p - center) / radius;
-        rec.set_face_normal(r, outward_normal);
-        
-        return true;
-    }
-};
-
 struct Triangle {
-    float3 v0;
-    float3 v1;
-    float3 v2;
+    float3 v0, v1, v2;
+    float3 n0, n1, n2;
 
-    float3 normal()
+    float3 get_normal(float3 uvw)
     {
         float3 n;
         float3 e1 = v1 - v0; 
@@ -117,14 +76,14 @@ struct Triangle {
         return normalize(n);
     }
     
-    bool hit(Ray r, out HitRecord rec, out float2 uv)
+    bool hit(Ray r, out HitRecord rec, out float3 uvw)
     {
-        float3 e1 = v1 - v0; 
+        float3 e1 = v1 - v0;  
         float3 e2 = v2 - v0; 
         float3 pvec = cross(r.direction,e2); 
         float det = dot(e1,pvec);
         
-        if (det < 0.0001) return false; 
+        if (det < 0.00001) return false; 
 
         float invDet = 1.0 / det; 
  
@@ -138,13 +97,47 @@ struct Triangle {
  
         float t = dot(e2,qvec) * invDet; 
 
-        rec.t = t;
+        float w = 1-u-v;
+        rec.t = t; 
         rec.p = r.at(t);
-        rec.set_face_normal(r, normal());
-
-        uv = float2(u,v);
+       
+        const float3 normal = n1 * u + n2 * v + n0 * w;
+        rec.normal = normal;
+        uvw = normal; 
         
         return t > 0;
+    }
+};
+
+struct Camera {
+    float3 lower_left_corner;
+    float3 horizontal;
+    float3 vertical;
+    
+    void setup(uint Width, uint Height, float VerticalFov, float3 CameraDirection) {
+        float3 vup = float3(0,1,0);
+        const float aspect_ratio = float(Width) / float(Height);
+        float theta = degrees_to_radians(VerticalFov);
+        float h = tan(theta/2.0);
+        float viewport_height = 2.0 * h;
+        float viewport_width = aspect_ratio * viewport_height;
+        
+        float3 w = unit_vector(CameraDirection);
+        float3 u = unit_vector(cross(vup, w));
+        float3 v = cross(w, u);
+        
+        horizontal = -viewport_width * u;
+        vertical = viewport_height * v;
+        lower_left_corner = _WorldSpaceCameraPos - horizontal/2 - vertical/2 - w;
+    }
+
+    Ray get_ray(float u, float v) {
+        float3 direction = lower_left_corner + u*horizontal + v*vertical - _WorldSpaceCameraPos;
+        Ray ray = {
+            _WorldSpaceCameraPos.x, _WorldSpaceCameraPos.y, _WorldSpaceCameraPos.z,
+            direction.x, direction.y, direction.z
+        };
+        return ray;
     }
 };
 
