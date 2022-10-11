@@ -11,6 +11,8 @@ TextureCube<float4> Skybox;
 SamplerState samplerSkybox; 
 RWTexture2D<float4> Result;
 
+float2 SamplePositions[16];
+int FrameNumber;
 int Width; 
 int Height;
 int DownscaleFactor;
@@ -44,9 +46,17 @@ void Trace(uint2 id : SV_DispatchThreadID)
         true,
         MaterialFuzz
     };
-    
-    float u = float(float(id.x) / (Width-1));
-    float v = float(float(id.y) / (Height-1));
+    float u, v;
+    if(UseAccumulation)
+    {
+        u = float(float(id.x + SamplePositions[FrameNumber].x) / Width);
+        v = float(float(id.y + SamplePositions[FrameNumber].y) / Height);
+        
+    } else
+    {
+        u = float(float(id.x) / Width);
+        v = float(float(id.y) / Height);
+    }
     Ray ray = cam.get_ray(u, v);
 
     // Trace Sample
@@ -101,6 +111,6 @@ void Trace(uint2 id : SV_DispatchThreadID)
     float4 pixel_color = float4(current_color, depth == MaxBounces ? 0.0 : 1.0);
     Downscale[id] =
         UseAccumulation
-            ? lerp(Downscale[id.xy],write_color(pixel_color, 1), 0.125)
-            : write_color(pixel_color, 1);
+            ? lerp(Downscale[id.xy],pixel_color, 1.0/16.0)
+            : pixel_color;
 }

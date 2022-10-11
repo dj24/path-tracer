@@ -61,20 +61,6 @@ float3 random_in_hemisphere(float2 co, float3 normal) {
     return -in_unit_sphere;
 }
 
-float4 write_color(float4 pixel_color, int samples_per_pixel) {
-    float r = pixel_color.x;
-    float g = pixel_color.y;
-    float b = pixel_color.z;
-    float a = pixel_color.w;
-    // Divide the color by the number of samples.
-    float scale = 1.0 / samples_per_pixel;
-    r *= scale;
-    g *= scale;
-    b *= scale;
-    
-    return float4(r,g,b,a);
-}
-
 uint pack_2_bytes(uint2 vals) {
     return vals.x + (vals.y << 8);
 }

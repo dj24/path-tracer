@@ -6,8 +6,10 @@
 // Texture2D<float> Depth;
 Texture2D<float4> Scene;
 RWTexture2D<float4> Upscale;
+RWTexture2D<float4> Downscale;
 RWTexture2D<float4> Result;
 float Samples;
+int DownscaleFactor, InterpolationType;
 
 float4 linear_blur (float2 id, float2 dir) 
 {
@@ -16,7 +18,7 @@ float4 linear_blur (float2 id, float2 dir)
     for(float i = -0.5; i<=0.5; i+=dist)
     {
         float2 coord = id+i*dir;
-        total += Upscale[coord];
+        total += Downscale[coord];
     }
     return total * dist;
 }
@@ -25,18 +27,116 @@ float4 linear_blur (float2 id, float2 dir)
 [numthreads(1,1,1)]
 void HorizontalBlur (uint2 id : SV_DispatchThreadID)
 {
-    Upscale[id] = linear_blur(id, float2(24, 0));
+    Downscale[id] = linear_blur(id, float2(0.1, 0));
 }
 
 [numthreads(1,1,1)]
 void VerticalBlur (uint2 id : SV_DispatchThreadID)
 {
-    Upscale[id] = linear_blur(id, float2(0, 24));
+    Downscale[id] = linear_blur(id, float2(0.0, 0.1));
 }
 
-// TODO: Fix texture name mismatch
-[numthreads(1,1,1)]
+float4 NNSample(uint2 id, int x, int y)
+{
+    uint2 p0 = id;
+    uint2 p1 = id + int2(0,1);
+    uint2 p2 = id + int2(1,1);
+    uint2 p3 = id + int2(1,0);
+    
+    float4 s0 = Downscale[p0];
+    float4 s1 = Downscale[p1];
+    float4 s2 = Downscale[p2];
+    float4 s3 = Downscale[p3];
+    
+    return (s0 + s1 + s2 + s3) * 0.25;
+}
+
+float4 CubicHermite (float4 A, float4 B, float4 C, float4 D, float t)
+{
+    float t2 = t*t;
+    float t3 = t*t*t;
+    float4 a = -A/2.0 + (3.0*B)/2.0 - (3.0*C)/2.0 + D/2.0;
+    float4 b = A - (5.0*B)/2.0 + 2.0*C - D / 2.0;
+    float4 c = -A/2.0 + C/2.0;
+    float4 d = B;
+    
+    return a*t3 + b*t2 + c*t + d;
+}
+
+float4 BicubicHermiteSample(uint2 id, float x, float y)
+{
+    float tx = x / DownscaleFactor;
+    float ty = y / DownscaleFactor;
+    
+    float4 c00 = Downscale[id + int2(-1,-1)];
+    float4 c10 = Downscale[id + int2(0,-1)];
+    float4 c20 = Downscale[id + int2(1,-1)];
+    float4 c30 = Downscale[id + int2(2,-1)];
+
+    float4 c01 = Downscale[id + int2(-1,0)];
+    float4 c11 = Downscale[id + int2(0,0)];
+    float4 c21 = Downscale[id + int2(1,0)];
+    float4 c31 = Downscale[id + int2(2,0)];
+
+    float4 c02 = Downscale[id + int2(-1,1)];
+    float4 c12 = Downscale[id + int2(0,1)];
+    float4 c22 = Downscale[id + int2(1,1)];
+    float4 c32 = Downscale[id + int2(2,1)];
+
+    float4 c03 = Downscale[id + int2(-1,2)];
+    float4 c13 = Downscale[id + int2(0,2)];
+    float4 c23 = Downscale[id + int2(1,2)];
+    float4 c33 = Downscale[id + int2(2,2)];
+
+    float4 CP0X = CubicHermite(c00, c10, c20, c30, tx);
+    float4 CP1X = CubicHermite(c01, c11, c21, c31, tx);
+    float4 CP2X = CubicHermite(c02, c12, c22, c32, tx);
+    float4 CP3X = CubicHermite(c03, c13, c23, c33, tx);
+    
+    return CubicHermite(CP0X, CP1X, CP2X, CP3X, ty);
+}
+
+float4 BilinearSample(uint2 id, float x, float y)
+{
+    float4 c00 = Downscale[id];
+    float4 c01 = Downscale[id + int2(0,1)];
+    float4 c10 = Downscale[id + int2(1,0)];
+    float4 c11 = Downscale[id + int2(1,1)];
+
+    float tx = x / DownscaleFactor;
+    float ty = y / DownscaleFactor;
+
+    return lerp(lerp(c00, c10, tx), lerp(c01, c11, tx), ty);
+}
+
+[numthreads(8,8,1)]
 void Mix (uint2 id : SV_DispatchThreadID) 
 {
-    Result[id] = lerp(Scene[id], Upscale[id], Upscale[id].w);
+    for(int x = 0; x < DownscaleFactor; x ++)
+    {
+        for(int y = 0; y < DownscaleFactor; y ++)
+        {
+            float4 sample;
+            switch (InterpolationType)
+            {
+                case 1:
+                    {
+                        sample = BilinearSample(id,x,y);
+                        break;
+                    }
+                case 2:
+                    {
+                        sample = BicubicHermiteSample(id,x,y);
+                        break;
+                    }
+                default:
+                    {
+                        sample = NNSample(id,x,y);
+                        break;
+                    }
+            }
+            uint2 pos = id * DownscaleFactor + int2(x,y);
+            Result[pos] = lerp(Scene[pos],sample, sample.w);
+        }
+    }
 }
