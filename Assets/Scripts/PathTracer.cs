@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Profiling;
@@ -9,7 +10,8 @@ public enum InterpolationType
 {
     NearestNeighbour,
     Bilinear,
-    BicubicHermite
+    BicubicHermite,
+    Lanczos
 }
 
 public class PathTracer : ScriptableRendererFeature
@@ -27,6 +29,7 @@ public class PathTracer : ScriptableRendererFeature
         private RenderTargetIdentifier _colorBuffer, _depthBuffer;
         private const string ProfilerTag = "PathTracerPass";
         private readonly ComputeShader _pathTraceComputeShader, _triangleBufferComputeShader, _mixComputeShader;
+        private readonly Shader _pathTraceSurfaceShader;
         private readonly int _downscaleFactor, _maxBounces, _blurSamples;
         private readonly float _blendAmount, _materialFuzz;
         private float _verticalFov;
@@ -54,14 +57,18 @@ public class PathTracer : ScriptableRendererFeature
             _pathTraceComputeShader = (ComputeShader)Resources.Load("Compute/PathTracer");
             _mixComputeShader = (ComputeShader)Resources.Load("Compute/Mix");
             _triangleBufferComputeShader = (ComputeShader)Resources.Load("Compute/FormatTriangleBuffer");
+            _pathTraceSurfaceShader = Resources.Load("Shaders/PathTraceSurface", typeof(Shader)) as Shader;
         }
-        
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
+            renderingData.cameraData.camera.depthTextureMode = DepthTextureMode.MotionVectors | DepthTextureMode.Depth;
+            ConfigureInput(ScriptableRenderPassInput.Depth);
+            ConfigureInput(ScriptableRenderPassInput.Motion);
             _verticalFov = renderingData.cameraData.camera.fieldOfView;
             _cameraDirection = -renderingData.cameraData.camera.transform.forward;
             _colorBuffer = renderingData.cameraData.renderer.cameraColorTarget;
             _depthBuffer = renderingData.cameraData.renderer.cameraDepthTarget;
+            
         }
         
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
@@ -71,12 +78,7 @@ public class PathTracer : ScriptableRendererFeature
             {
                 return;
             }
-
-            var reflectionProbe = Camera.main.GetComponent<ReflectionProbe>();
-            if (reflectionProbe.texture == null)
-            {
-                return;
-            }
+            
             var meshFilters = FindObjectsOfType(typeof(MeshFilter)) as MeshFilter[];
             if (meshFilters.Length == 0)
             {
@@ -88,9 +90,15 @@ public class PathTracer : ScriptableRendererFeature
             // Get triangle count to initialise triangle buffer
             foreach (var meshFilter in meshFilters)
             {
-                var mesh = meshFilter.sharedMesh;
-                var meshTriangleCount = (int)(mesh.GetIndexCount(0) / 3);
-                sceneTriangleCount += meshTriangleCount;
+                // foreach (var sharedMaterial in meshFilter.transform.GetComponent<MeshRenderer>().sharedMaterials)
+                // {
+                //     if (sharedMaterial.shader == _pathTraceSurfaceShader)
+                //     {
+                        var mesh = meshFilter.sharedMesh;
+                        var meshTriangleCount = (int)(mesh.GetIndexCount(0) / 3);
+                        sceneTriangleCount += meshTriangleCount;
+                //     }
+                // }
             }
             
             var meshBuffers = new List<GraphicsBuffer>();
@@ -100,7 +108,6 @@ public class PathTracer : ScriptableRendererFeature
             // Add all meshes to one triangle buffer
             for (int i = 0; i < meshFilters.Length; i++)
             {
-                
                 var mesh = meshFilters[i].sharedMesh;
                 mesh.indexBufferTarget = GraphicsBuffer.Target.Raw;
                 mesh.vertexBufferTarget = GraphicsBuffer.Target.Raw;
@@ -108,6 +115,7 @@ public class PathTracer : ScriptableRendererFeature
                 var indexBuffer = mesh.GetIndexBuffer();
                 meshBuffers.Add(vertexBuffer);
                 meshBuffers.Add(indexBuffer);
+                
                 var meshTriangleCount = (int)(mesh.GetIndexCount(0) / 3);
                 _triangleBufferComputeShader.SetInt("PositionOffset", mesh.GetVertexAttributeOffset(VertexAttribute.Position));
                 _triangleBufferComputeShader.SetInt("NormalOffset", mesh.GetVertexAttributeOffset(VertexAttribute.Normal));
@@ -118,7 +126,6 @@ public class PathTracer : ScriptableRendererFeature
                 _triangleBufferComputeShader.SetMatrix("LocalToWorld", meshFilters[i].GetComponent<Renderer>().localToWorldMatrix);
                 _triangleBufferComputeShader.SetInt("VertexStride", vertexBuffer.stride);
                 _triangleBufferComputeShader.SetInt("Offset", currentOffset);
-                
                 _triangleBufferComputeShader.GetKernelThreadGroupSizes(0,out var groupSize, out var _, out _);
                 int threadGroups = (int) Mathf.Ceil(meshTriangleCount / (float)groupSize); 
                 _triangleBufferComputeShader.Dispatch(0, threadGroups, 1, 1);
@@ -136,8 +143,9 @@ public class PathTracer : ScriptableRendererFeature
             var _sceneTexture = RenderTexture.GetTemporary(descriptor);
             var _depthTexture = RenderTexture.GetTemporary(descriptor);
             descriptor.enableRandomWrite = true;
-            var _upscaleTexture = RenderTexture.GetTemporary(descriptor);
             var _outputTexture = RenderTexture.GetTemporary(descriptor);
+            Shader.SetGlobalTexture("_PathTraceTexture", _outputTexture);
+            Shader.SetGlobalFloat("_PathTraceDownscaleFactor", _downscaleFactor);
             descriptor.width /= _downscaleFactor;
             descriptor.height /= _downscaleFactor;
             var _downscaleTexture = RenderTexture.GetTemporary(descriptor);
@@ -166,8 +174,11 @@ public class PathTracer : ScriptableRendererFeature
                 new(0.375f,0.4375f, 0f, 0f),
                 new(-0.4375f,-0.5f, 0f, 0f),
             };
-            
+
             // Execute compute
+            var motionVectors = Shader.GetGlobalTexture("_MotionVectorTexture");
+            var isUsingCubeSky = RenderSettings.skybox.shader == Shader.Find("Skybox/Cubemap");
+
             _pathTraceComputeShader.SetInt(Shader.PropertyToID("FrameNumber"), Time.frameCount % samplePosisions.Length);
             _pathTraceComputeShader.SetVectorArray(Shader.PropertyToID("SamplePositions"), samplePosisions);
             _pathTraceComputeShader.SetBuffer(_traceKernelIndex,"SceneTriangles", sceneTriangles);
@@ -183,9 +194,10 @@ public class PathTracer : ScriptableRendererFeature
             _pathTraceComputeShader.SetVector("Color", _materialColor);
             _pathTraceComputeShader.SetFloat("VerticalFov", _verticalFov);
             _pathTraceComputeShader.SetVector("CameraDirection", new Vector4(_cameraDirection.x, _cameraDirection.y, _cameraDirection.z, 0));
+            _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Motion"), motionVectors != null ? motionVectors : Texture2D.blackTexture);
             _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Downscale"), _downscaleTexture);
             _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Depth"), _depthTexture);
-            _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Skybox"), reflectionProbe.texture);
+            _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Skybox"), isUsingCubeSky ? RenderSettings.skybox.GetTexture("_Tex") : Texture2D.blackTexture);
 
             uint groupSizeX;
             uint groupSizeY;
@@ -197,45 +209,38 @@ public class PathTracer : ScriptableRendererFeature
             
             sceneTriangles.Release();
             RenderTexture.ReleaseTemporary(_depthTexture);
-            
-            cmd.Blit(_downscaleTexture,_upscaleTexture);
 
             _mixComputeShader.SetInt(Shader.PropertyToID("InterpolationType"), (int)_interpolationType);
             _mixComputeShader.SetFloat(Shader.PropertyToID("Samples"), _blurSamples);
             _mixComputeShader.SetInt(Shader.PropertyToID("DownscaleFactor"), _downscaleFactor);
             _mixComputeShader.SetTexture(_mixKernelIndex, Shader.PropertyToID("Result"), _outputTexture);
-            _mixComputeShader.SetTexture(_mixKernelIndex, Shader.PropertyToID("Upscale"), _upscaleTexture);
-            _mixComputeShader.SetTexture(_horizontalBlurKernelIndex, Shader.PropertyToID("Upscale"), _upscaleTexture);
-            _mixComputeShader.SetTexture(_verticalBlurKernelIndex, Shader.PropertyToID("Upscale"), _upscaleTexture);
             _mixComputeShader.SetTexture(_mixKernelIndex, Shader.PropertyToID("Downscale"), _downscaleTexture);
+            _mixComputeShader.SetTexture(_mixKernelIndex, Shader.PropertyToID("Motion"), motionVectors != null ? motionVectors : Texture2D.blackTexture);
             _mixComputeShader.SetTexture(_horizontalBlurKernelIndex, Shader.PropertyToID("Downscale"), _downscaleTexture);
             _mixComputeShader.SetTexture(_verticalBlurKernelIndex, Shader.PropertyToID("Downscale"), _downscaleTexture);
             _mixComputeShader.SetTexture(_mixKernelIndex, Shader.PropertyToID("Scene"), _sceneTexture);
             
             if (_blurSamples > 0)
             {
-                _mixComputeShader.Dispatch(_horizontalBlurKernelIndex,_sceneTexture.width, _sceneTexture.height, 1);
-                _mixComputeShader.Dispatch(_verticalBlurKernelIndex,_sceneTexture.width, _sceneTexture.height, 1);
+                _mixComputeShader.Dispatch(_horizontalBlurKernelIndex,_downscaleTexture.width, _downscaleTexture.height, 1);
+                _mixComputeShader.Dispatch(_verticalBlurKernelIndex,_downscaleTexture.width, _downscaleTexture.height, 1);
             }
             _mixComputeShader.GetKernelThreadGroupSizes(_traceKernelIndex,out groupSizeX, out groupSizeY, out _);
             threadGroupsX = (int) Mathf.Ceil(_downscaleTexture.width / (float)groupSizeX); 
             threadGroupsY = (int) Mathf.Ceil(_downscaleTexture.height / (float)groupSizeY);
             _mixComputeShader.Dispatch(_mixKernelIndex, threadGroupsX, threadGroupsY, 1);
             
-            // Clean up
-            RenderTexture.ReleaseTemporary(_sceneTexture);
-            RenderTexture.ReleaseTemporary(_outputTexture);
-            RenderTexture.ReleaseTemporary(_upscaleTexture);
-            RenderTexture.ReleaseTemporary(_downscaleTexture);
-            
-            
             // Sync compute with frame
             AsyncGPUReadback.Request(_outputTexture).WaitForCompletion();
             
             // Copy processed texture into scene buffer
-            cmd.Blit(_outputTexture,_colorBuffer);
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
+            
+            // Clean up
+            RenderTexture.ReleaseTemporary(_sceneTexture);
+            RenderTexture.ReleaseTemporary(_outputTexture);
+            RenderTexture.ReleaseTemporary(_downscaleTexture);
         }
     }
 

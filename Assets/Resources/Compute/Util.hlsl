@@ -15,7 +15,7 @@ float length_squared(float3 v) {
 
 float random(float2 co){
     float2 time_seed = float2(co.x + _SinTime.x, co.y + _SinTime.x) / 2000.0;
-    // time_seed = co;
+    time_seed = co;
     return frac(sin(dot(time_seed ,float2(12.9898,78.233))) * 43758.5453);
 }
 

@@ -2,12 +2,14 @@
 #pragma kernel HorizontalBlur
 #pragma kernel VerticalBlur
 #include <UnityShaderVariables.cginc>
+#define PI    3.1415926535897932384626433
+#define PI_SQ 9.8696044010893586188344910
 
 // Texture2D<float> Depth;
 Texture2D<float4> Scene;
-RWTexture2D<float4> Upscale;
 RWTexture2D<float4> Downscale;
 RWTexture2D<float4> Result;
+Texture2D<float3> Motion;
 float Samples;
 int DownscaleFactor, InterpolationType;
 
@@ -109,6 +111,35 @@ float4 BilinearSample(uint2 id, float x, float y)
     return lerp(lerp(c00, c10, tx), lerp(c01, c11, tx), ty);
 }
 
+float4 LanczosSample(uint2 id, float x, float y) {
+    float2 tex = id + float2(x,y) / DownscaleFactor;
+    float t = x / DownscaleFactor;
+    float2 pos = tex-float2(t, 0.);
+    
+    float4 Q2 = Downscale[pos+.5 ]; // nearest original pixel to the left
+    if(!t) return Q2; // case t == 0. is required to return sample Q2, because of a possible division by 0.
+    
+    // original pixels
+    float4 Q0 = Downscale[(pos+float2(-1.5, .5))];
+    float4 Q1 = Downscale[(pos+float2(-.5, .5))];
+    float4 Q3 = Downscale[(pos+float2(1.5, .5))];
+    float4 Q4 = Downscale[(pos+float2(2.5, .5))];
+    float4 Q5 = Downscale[(pos+float2(3.5, .5))];
+    float3 wset0 = float3(2., 1., 0.)*PI+t*PI;
+    float3 wset1 = float3(1., 2., 3.)*PI-t*PI;
+    float3 wset0s = wset0*.5;
+    float3 wset1s = wset1*.5;
+    float3 w0 = sin(wset0)*sin(wset0s)/(wset0*wset0s);
+    float3 w1 = sin(wset1)*sin(wset1s)/(wset1*wset1s);
+
+    float wc = 1.-dot(1., w0+w1); // compensate truncated window factor by linear factoring on the two nearest samples
+    w0.z += wc*(1.-t);
+    w1.x += wc*t;
+ 
+    return w0.x*Q0+w0.y*Q1+w0.z*Q2+w1.x*Q3+w1.y*Q4+w1.z*Q5; // interpolation output
+    
+}
+
 [numthreads(8,8,1)]
 void Mix (uint2 id : SV_DispatchThreadID) 
 {
@@ -129,6 +160,11 @@ void Mix (uint2 id : SV_DispatchThreadID)
                         sample = BicubicHermiteSample(id,x,y);
                         break;
                     }
+                case 3:
+                    {
+                        sample = LanczosSample(id,x,y);
+                        break;
+                    }
                 default:
                     {
                         sample = NNSample(id,x,y);
@@ -137,6 +173,8 @@ void Mix (uint2 id : SV_DispatchThreadID)
             }
             uint2 pos = id * DownscaleFactor + int2(x,y);
             Result[pos] = lerp(Scene[pos],sample, sample.w);
+            // Result[pos] = float4(Motion[pos], 1);
         }
     }
+    
 }

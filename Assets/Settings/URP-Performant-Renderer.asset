@@ -19,7 +19,7 @@ MonoBehaviour:
   - {fileID: 942905851108497670}
   m_RendererFeatureMap: 0699f537e0df150d
   m_UseNativeRenderPass: 0
-  postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
+  postProcessData: {fileID: 0}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
   shaders:
     blitPS: {fileID: 4800000, guid: c17132b1f77d20942aa75f8429c0f8bc, type: 3}
@@ -51,8 +51,8 @@ MonoBehaviour:
     failOperation: 0
     zFailOperation: 0
   m_ShadowTransparentReceive: 1
-  m_RenderingMode: 0
-  m_DepthPrimingMode: 0
+  m_RenderingMode: 1
+  m_DepthPrimingMode: 1
   m_AccurateGbufferNormals: 0
   m_ClusteredRendering: 0
   m_TileSize: 32
@@ -70,10 +70,11 @@ MonoBehaviour:
   m_Name: PathTracerRenderFeature
   m_EditorClassIdentifier: 
   m_Active: 1
-  downscaleFactor: 7
-  maxBounces: 6
-  blurSamples: 17
-  materialFuzz: 0.023
-  materialColor: {r: 0.4528302, g: 0.4528302, b: 0.4528302, a: 0}
+  downscaleFactor: 4
+  maxBounces: 4
+  blurSamples: 0
+  materialFuzz: 0.123
+  materialColor: {r: 0.5660378, g: 0.3756656, b: 0.17888929, a: 0}
   useAccumulation: 1
   materialIsMetal: 1
+  interpolationType: 2
