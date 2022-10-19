@@ -70,11 +70,10 @@ MonoBehaviour:
   m_Name: PathTracerRenderFeature
   m_EditorClassIdentifier: 
   m_Active: 1
-  downscaleFactor: 4
-  maxBounces: 4
-  blurSamples: 0
-  materialFuzz: 0.123
-  materialColor: {r: 0.5660378, g: 0.3756656, b: 0.17888929, a: 0}
-  useAccumulation: 1
+  downscaleFactor: 5
+  maxBounces: 1
+  materialFuzz: 0.042
+  materialColor: {r: 1, g: 1, b: 1, a: 0}
+  useAccumulation: 0
   materialIsMetal: 1
-  interpolationType: 2
+  interpolationType: 1

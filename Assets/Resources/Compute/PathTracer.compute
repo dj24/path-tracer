@@ -65,13 +65,17 @@ void Trace(uint2 id : SV_DispatchThreadID)
     float3 current_color = 1.0; // Light colour
 
     HitRecord rec;
-
-    float lowest_t = 999999999999.0; 
+    HitRecord closest;
+    
+    float cumulative_t = 0;
+    float lowest_t = 999999999999.0;
+    
     // Depth is number bounces, one ray per bounce
     while(depth > 0)
     {
+        
         bool hit_anything = false;
-        // bool should_sample_light = random(id) > 0.1;
+        // bool should_sample_light = random(id) > 0.2;
         bool should_sample_light = false;
         Material material;
         
@@ -84,8 +88,9 @@ void Trace(uint2 id : SV_DispatchThreadID)
                 hit_anything = true; 
                 Material new_material = metal;
                 new_material.isMetal = IsMetal;
-                // new_material.albedo = uvw;
+                new_material.albedo = uvw;
                 lowest_t = rec.t;
+                closest = rec;
                 material = new_material;
             }
         }
@@ -93,24 +98,25 @@ void Trace(uint2 id : SV_DispatchThreadID)
         {
             if(should_sample_light)
             {
-                ray =  material.direct_light(float2(u,v), rec); // Towards Light
+                ray =  material.direct_light(float2(u,v), closest); // Towards Light
                 current_color = 0;
             }
             else
             {
                 float3 attenuation;
-                ray = material.scatter(float2(u,v), ray, rec, attenuation);
+                ray = material.scatter(float2(u,v), ray, closest, attenuation);
                 current_color = attenuation * current_color;
             }
             depth --;
             continue; 
         }
         float3 sky_color = Skybox.SampleLevel( samplerSkybox, float4( unit_vector(ray.direction).xyz, 0 ), 0.0 ).xyz;
+        // sky_color = 1;
         current_color = sky_color * current_color; 
         break;
     }
     float4 pixel_color = float4(current_color, depth == MaxBounces ? 0.0 : 1.0);
-    float blend_amount = abs(Motion[id.xy * DownscaleFactor]) > 0 ? 1.0 : 1.0/16.0;
+    float blend_amount = abs(Motion[id.xy * DownscaleFactor]) > 0 || Downscale[id.xy].w == 0 ? 1.0 : 1.0/16.0;
     Downscale[id] =
         UseAccumulation
             ? lerp(Downscale[id.xy],pixel_color, blend_amount)

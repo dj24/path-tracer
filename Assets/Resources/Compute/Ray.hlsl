@@ -104,6 +104,7 @@ struct Triangle {
         const float3 normal = n1 * u + n2 * v + n0 * w;
         rec.normal = normal;
         uvw = normal; 
+        // uvw = smoothstep(6,8,t);
         
         return t > 0;
     }
