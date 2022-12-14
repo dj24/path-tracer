@@ -6,6 +6,7 @@
 
 RWTexture2D<float4> Downscale;
 RWStructuredBuffer<Triangle> SceneTriangles;
+ConsumeStructuredBuffer<int> MeshTrianglesOffsets;
 Texture2D<float> Depth;
 TextureCube<float4> Skybox;
 SamplerState samplerSkybox;
@@ -78,7 +79,8 @@ void Trace(uint2 id : SV_DispatchThreadID)
         // bool should_sample_light = random(id) > 0.2;
         bool should_sample_light = false;
         Material material;
-        
+
+        // int meshIndexOffset = MeshTrianglesOffsets.Consume();
         
         // Iterate over objects, finding closest hit
         for (int i = 0; i < TriangleCount; i++) {
