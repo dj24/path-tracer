@@ -1,12 +1,16 @@
 #pragma kernel Trace
 
-// TODO: add samples over time - 16 sub pixels over 16 frames
-
 #include "Ray.hlsl"
+
+struct MeshTriangleOffset
+{
+    int startIndex;
+    int endIndex;
+};
 
 RWTexture2D<float4> Downscale;
 RWStructuredBuffer<Triangle> SceneTriangles;
-ConsumeStructuredBuffer<int> MeshTrianglesOffsets;
+RWStructuredBuffer<MeshTriangleOffset> MeshTrianglesOffsets;
 Texture2D<float> Depth;
 TextureCube<float4> Skybox;
 SamplerState samplerSkybox;
@@ -20,6 +24,7 @@ int Height;
 int DownscaleFactor;
 int TriangleCount;
 int MaxBounces;
+int MeshCount;
 float VerticalFov;
 float MaterialFuzz;
 bool UseAccumulation;
@@ -29,8 +34,10 @@ float3 MeshOrigin;
 float3 Color;
   
 [numthreads(8,8,1)]
-void Trace(uint2 id : SV_DispatchThreadID)
+void Trace(uint3 d : SV_DispatchThreadID)
 {
+    uint meshIndex = d.z;
+    uint2 id = d.xy;
     if(Depth[id * DownscaleFactor] == 0)
     {
         // If not rendering, dont sample
@@ -68,7 +75,6 @@ void Trace(uint2 id : SV_DispatchThreadID)
     HitRecord rec;
     HitRecord closest;
     
-    float cumulative_t = 0;
     float lowest_t = 999999999999.0;
     
     // Depth is number bounces, one ray per bounce
@@ -80,22 +86,26 @@ void Trace(uint2 id : SV_DispatchThreadID)
         bool should_sample_light = false;
         Material material;
 
-        // int meshIndexOffset = MeshTrianglesOffsets.Consume();
-        
-        // Iterate over objects, finding closest hit
-        for (int i = 0; i < TriangleCount; i++) {
-            Triangle tri = SceneTriangles[i];
-            float3 uvw;
-            if (tri.hit(ray,rec,uvw) && rec.t < lowest_t) {
-                hit_anything = true; 
-                Material new_material = metal;
-                new_material.isMetal = IsMetal;
-                new_material.albedo = uvw;
-                lowest_t = rec.t;
-                closest = rec;
-                material = new_material;
+        // Iterate over meshes, finding closest hit
+        for(int m = 0; m < MeshCount; m++)
+        {
+            MeshTriangleOffset meshOffset = MeshTrianglesOffsets[m];
+            // Iterate over triangles, finding closest hit
+            for (int i = meshOffset.startIndex; i < meshOffset.endIndex; i++) {
+                Triangle tri = SceneTriangles[i];
+                float3 uvw;
+                if (tri.hit(ray,rec,uvw) && rec.t < lowest_t) {
+                    hit_anything = true; 
+                    Material new_material = metal;
+                    new_material.isMetal = IsMetal;
+                    // new_material.albedo = uvw;
+                    lowest_t = rec.t;
+                    closest = rec;
+                    material = new_material;
+                }
             }
         }
+        
         if(hit_anything)
         {
             if(should_sample_light)
