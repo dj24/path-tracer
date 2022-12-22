@@ -18,7 +18,7 @@ MonoBehaviour:
   m_RendererFeatures:
   - {fileID: 942905851108497670}
   m_RendererFeatureMap: 0699f537e0df150d
-  m_UseNativeRenderPass: 0
+  m_UseNativeRenderPass: 1
   postProcessData: {fileID: 0}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
   shaders:
@@ -53,7 +53,7 @@ MonoBehaviour:
   m_ShadowTransparentReceive: 1
   m_RenderingMode: 1
   m_DepthPrimingMode: 1
-  m_AccurateGbufferNormals: 0
+  m_AccurateGbufferNormals: 1
   m_ClusteredRendering: 0
   m_TileSize: 32
   m_IntermediateTextureMode: 1
@@ -71,9 +71,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_Active: 1
   downscaleFactor: 2
-  maxBounces: 1
-  materialFuzz: 0.638
-  materialColor: {r: 1, g: 1, b: 1, a: 0}
-  useAccumulation: 0
-  materialIsMetal: 0
+  maxBounces: 6
+  materialFuzz: 0.307
+  materialColor: {r: 0.3628516, g: 0.5002684, b: 0.509434, a: 0}
+  useAccumulation: 1
+  materialIsMetal: 1
   interpolationType: 2

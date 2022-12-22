@@ -73,7 +73,7 @@ Shader "Unlit/PathTraceSurface"
                 }
                 
                 UNITY_APPLY_FOG(i.fogCoord, col);
-                return col;
+                return col * float4(0.33,0.33,1.5, 1);
             }
             ENDHLSL
         }

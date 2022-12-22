@@ -14,7 +14,6 @@ RWStructuredBuffer<MeshTriangleOffset> MeshTrianglesOffsets;
 Texture2D<float> Depth;
 TextureCube<float4> Skybox;
 SamplerState samplerSkybox;
-RWTexture2D<float4> Result;
 Texture2D<float3> Motion;
 
 float2 SamplePositions[16];
@@ -56,10 +55,12 @@ void Trace(uint3 d : SV_DispatchThreadID)
         MaterialFuzz
     };
     float u, v;
+    const float uMultiplier = 1 + SamplePositions[FrameNumber / 16].x;
+    const float vMultiplier = 1 + SamplePositions[FrameNumber / 16].y;
     if(UseAccumulation)
     {
-        u = float(id.x + SamplePositions[FrameNumber].x) / Width;
-        v = float(id.y + SamplePositions[FrameNumber].y) / Height;
+        u = float(id.x + SamplePositions[FrameNumber % 16].x * uMultiplier) / Width;
+        v = float(id.y + SamplePositions[FrameNumber % 16].y * vMultiplier) / Height;
         
     } else
     {
