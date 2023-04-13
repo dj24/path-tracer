@@ -21,24 +21,6 @@ struct Material {
     float3 albedo;
     bool isMetal;
     float fuzz;
-
-    Ray direct_light(float2 co, HitRecord rec) {
-        Ray scattered;
-        scattered.origin = rec.p; 
-        if(isMetal)
-        {
-            scattered.origin = rec.p;
-            scattered.direction = _WorldSpaceLightPos0.xyz + fuzz * random_in_unit_sphere(co);
-        } else
-        {
-            scattered.direction = _WorldSpaceLightPos0.xyz + random_in_unit_sphere(co);
-            if (near_zero(scattered.direction))
-            {
-                scattered.direction = rec.normal;
-            }
-        }
-        return scattered;
-    }
     
     Ray scatter(float2 co, Ray r_in, HitRecord rec,out float3 attenuation) {
         Ray scattered;
@@ -103,8 +85,7 @@ struct Triangle {
        
         const float3 normal = n1 * u + n2 * v + n0 * w;
         rec.normal = normal;
-        uvw = normal; 
-        // uvw = smoothstep(6,8,t);
+        uvw = normal;
         
         return t > 0;
     }

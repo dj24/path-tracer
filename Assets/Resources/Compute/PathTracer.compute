@@ -11,12 +11,11 @@ struct MeshTriangleOffset
 RWTexture2D<float4> Downscale;
 RWStructuredBuffer<Triangle> SceneTriangles;
 RWStructuredBuffer<MeshTriangleOffset> MeshTrianglesOffsets;
-Texture2D<float> Depth;
 TextureCube<float4> Skybox;
 SamplerState samplerSkybox;
 Texture2D<float3> Motion;
 
-float2 SamplePositions[16];
+float2 SamplePositions[16]; 
 int FrameNumber;
 int Width; 
 int Height;
@@ -31,19 +30,13 @@ bool IsMetal;
 float3 CameraDirection;
 float3 MeshOrigin;
 float3 Color;
-  
+
+
 [numthreads(8,8,1)]
 void Trace(uint3 d : SV_DispatchThreadID)
 {
-    uint meshIndex = d.z;
     uint2 id = d.xy;
-    if(Depth[id * DownscaleFactor] == 0)
-    {
-        // If not rendering, dont sample
-        Downscale[id] = 0;
-        return;
-    }
-   
+    
     // Camera
     Camera cam;
     cam.setup(Width, Height, VerticalFov, CameraDirection);
@@ -68,7 +61,7 @@ void Trace(uint3 d : SV_DispatchThreadID)
         v = float(id.y) / Height;
     }
     Ray ray = cam.get_ray(u, v);
-
+    
     // Trace Sample
     int depth = MaxBounces;
     float3 current_color = 1.0; // Light colour
@@ -81,10 +74,7 @@ void Trace(uint3 d : SV_DispatchThreadID)
     // Depth is number bounces, one ray per bounce
     while(depth > 0)
     {
-        
         bool hit_anything = false;
-        // bool should_sample_light = random(id) > 0.2;
-        bool should_sample_light = false;
         Material material;
 
         // Iterate over meshes, finding closest hit
@@ -93,13 +83,12 @@ void Trace(uint3 d : SV_DispatchThreadID)
             MeshTriangleOffset meshOffset = MeshTrianglesOffsets[m];
             // Iterate over triangles, finding closest hit
             for (int i = meshOffset.startIndex; i < meshOffset.endIndex; i++) {
-                Triangle tri = SceneTriangles[i];
                 float3 uvw;
-                if (tri.hit(ray,rec,uvw) && rec.t < lowest_t) {
+                if (SceneTriangles[i].hit(ray,rec,uvw) && rec.t < lowest_t) {
                     hit_anything = true; 
                     Material new_material = metal;
                     new_material.isMetal = IsMetal;
-                    // new_material.albedo = uvw;
+                    new_material.albedo = LoadSceneNormals(id);
                     lowest_t = rec.t;
                     closest = rec;
                     material = new_material;
@@ -109,27 +98,39 @@ void Trace(uint3 d : SV_DispatchThreadID)
         
         if(hit_anything)
         {
-            if(should_sample_light)
-            {
-                ray =  material.direct_light(float2(u,v), closest); // Towards Light
-                current_color = 0;
-            }
-            else
-            {
-                float3 attenuation;
-                ray = material.scatter(float2(u,v), ray, closest, attenuation);
-                current_color = attenuation * current_color;
-            }
+            float3 attenuation;
+            ray = material.scatter(float2(u,v), ray, closest, attenuation);
+            current_color = attenuation * current_color;
             depth --;
-            continue; 
+            continue;
         }
-        float3 sky_color = Skybox.SampleLevel( samplerSkybox, float4( unit_vector(ray.direction).xyz, 0 ), 0.0 ).xyz;
-        // sky_color = 1;
-        current_color = sky_color * current_color; 
+        // if nothing hit, sample sky and sun
         break;
     }
+    
+    // Ray sunRay;
+    // sunRay.origin = float3(100,100,0);
+    // //TODO get actual light position
+    // sunRay.direction = -normalize(closest.p - sunRay.origin);
+    // HitRecord sunRec;
+    // float3 uvw;
+    // bool isSunOccluded = true;
+    // // Iterate over meshes, checking if direction light is occluded
+    // for(int m = 0; m < MeshCount; m++)
+    // {
+    //     MeshTriangleOffset meshOffset = MeshTrianglesOffsets[m];
+    //     for (int i = meshOffset.startIndex; i < meshOffset.endIndex; i++) {
+    //         if (!SceneTriangles[i].hit(sunRay,sunRec,uvw)) {
+    //             isSunOccluded = false;
+    //         }
+    //     }
+    // }
+        
+    float3 sky_color = Skybox.SampleLevel( samplerSkybox, float4( unit_vector(ray.direction).xyz, 0 ), 0.0 ).xyz;
+    current_color = sky_color * current_color;
+    
     float4 pixel_color = float4(current_color, depth == MaxBounces ? 0.0 : 1.0);
-    float blend_amount = abs(Motion[id.xy * DownscaleFactor]) > 0 || Downscale[id.xy].w == 0 ? 1.0 : 1.0/16.0;
+    float blend_amount = abs(Motion[id.xy * DownscaleFactor]) > 0 || Downscale[id.xy].w == 0 ? 1.0 : 1.0/8.0;
     Downscale[id] =
         UseAccumulation
             ? lerp(Downscale[id.xy],pixel_color, blend_amount)

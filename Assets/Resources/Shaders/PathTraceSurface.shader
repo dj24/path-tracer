@@ -20,6 +20,7 @@ Shader "Unlit/PathTraceSurface"
             struct appdata
             {
                 float4 vertex : POSITION;
+                float3 normal : NORMAL;
             };
 
             struct v2f
@@ -27,6 +28,7 @@ Shader "Unlit/PathTraceSurface"
                 UNITY_FOG_COORDS(1)
                 float4 vertex : SV_POSITION;
                 float4 screenPos : TEXCOORD0;
+                float3 normal : NORMAL;
             };
 
             sampler2D _MainTex;
@@ -37,12 +39,14 @@ Shader "Unlit/PathTraceSurface"
                 v2f o;
                 o.vertex = UnityObjectToClipPos(v.vertex);
                 o.screenPos = ComputeScreenPos(o.vertex);
+                o.normal = v.normal;
                 UNITY_TRANSFER_FOG(o,o.vertex);
                 return o;
             }
 
             fixed4 frag (v2f i) : SV_Target
             {
+                return fixed4(i.normal, 1);
                 const float2 screenUV = i.screenPos / i.screenPos.w;
                 // TODO: adjust this based on normal
                 float dx = _PathTraceDownscaleFactor / _ScreenParams.x;
@@ -72,8 +76,9 @@ Shader "Unlit/PathTraceSurface"
                          }
                 }
                 
-                UNITY_APPLY_FOG(i.fogCoord, col);
-                return col * float4(0.33,0.33,1.5, 1);
+                // UNITY_APPLY_FOG(i.fogCoord, col);
+                // return col * float4(0.33,0.33,1.5, 1);
+                return col;
             }
             ENDHLSL
         }

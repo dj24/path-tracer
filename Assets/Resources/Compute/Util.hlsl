@@ -1,4 +1,5 @@
-#include <UnityShaderVariables.cginc>
+// #include <UnityShaderVariables.cginc>
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl" 
 const float infinity = 99999999.0;
 
 float degrees_to_radians(float degrees) {

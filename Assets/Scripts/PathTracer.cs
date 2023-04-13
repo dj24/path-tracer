@@ -50,7 +50,7 @@ public class PathTracer : ScriptableRendererFeature
         private int _traceKernelIndex => _pathTraceComputeShader.FindKernel("Trace");
         public PathTracerPass(int downscaleFactor, int maxBounces, bool useAccumulation, float materialFuzz, bool materialIsMetal, Color materialColor, InterpolationType interpolationType)
         {
-            renderPassEvent = RenderPassEvent.BeforeRendering;
+            renderPassEvent = RenderPassEvent.AfterRenderingOpaques;
             _interpolationType = interpolationType;
             _materialColor = materialColor;
             _materialIsMetal = materialIsMetal;
@@ -145,8 +145,6 @@ public class PathTracer : ScriptableRendererFeature
             descriptor.enableRandomWrite = true;
             var _downscaleTexture = RenderTexture.GetTemporary(descriptor);
             
-            
-            
             var samplePosisions = new Vector4[]
             {
                 new(0.0625f,0.0625f, 0f, 0f),
@@ -191,9 +189,8 @@ public class PathTracer : ScriptableRendererFeature
             _pathTraceComputeShader.SetBuffer(_traceKernelIndex, "MeshTrianglesOffsets", meshTriangleOffsetsBuffer);
             _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Motion"), motionVectors != null ? motionVectors : Texture2D.blackTexture);
             _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Downscale"), _downscaleTexture);
-            _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Depth"), depthTexture != null ? depthTexture : Texture2D.blackTexture);
+            _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Depth"), renderingData.cameraData.renderer.cameraDepthTargetHandle);
             _pathTraceComputeShader.SetTexture(_traceKernelIndex, Shader.PropertyToID("Skybox"), isUsingCubeSky ? RenderSettings.skybox.GetTexture(Tex) : Texture2D.blackTexture);
-
             
             // cmd.SetComputeIntParam(_pathTraceComputeShader, "UseAccumulation", _useAccumulation ? 1: 0);
             // cmd.SetComputeIntParam(_pathTraceComputeShader, "IsMetal", _materialIsMetal ? 1: 0);
